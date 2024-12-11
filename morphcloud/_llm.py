@@ -416,18 +416,3 @@ def agent_loop(instance):
 
             print()
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Simple SSH CLI chat with Morph VM")
-    parser.add_argument(
-        "--instance-id", required=True, help="The Morph VM instance ID to connect to"
-    )
-    parser.add_argument(
-        "--morph-api-key",
-        required=False,
-        default=os.environ.get("MORPH_API_KEY", ""),
-        help="Morph API Key",
-    )
-    args = parser.parse_args()
-
-    agent_loop(args.instance_id, args.morph_api_key)
