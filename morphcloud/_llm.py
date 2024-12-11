@@ -26,21 +26,25 @@ from pydantic import BaseModel
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 MODEL_NAME = "claude-3-5-sonnet-20241022"
 
-# Updated color scheme for light background
+
 COLORS = {
-    "PRIMARY": "\033[38;2;95;148;23m",  # Darker green for primary text
-    "HIGHLIGHT": "\033[38;2;184;52;51m",  # Darker red for highlights
-    "TEXT": "\033[38;2;51;51;51m",  # Dark gray for main text
-    "SECONDARY": "\033[38;2;102;102;102m",  # Medium gray for secondary text
+    "PRIMARY": "\033[32m",
+    "HIGHLIGHT": "\033[31m",
+    "TEXT": "\033[39m",
+    "SECONDARY": "\033[90m",
+    "OUTPUT_HEADER": "\033[34m",
+    "SUCCESS": "\033[32m",
+    "ERROR": "\033[31m",
     "RESET": "\033[0m",
 }
 
-# Create prompts
+# Create prompts using ANSI codes
 if readline:
-    USER_PROMPT = "\001\033[38;2;184;52;51m\002[user]:\001\033[0m\002 "
+    USER_PROMPT = f"\001{COLORS['HIGHLIGHT']}\002[user]:\001{COLORS['RESET']}\002 "
 else:
     USER_PROMPT = f"{COLORS['HIGHLIGHT']}[user]:{COLORS['RESET']} "
 MORPHVM_PROMPT = f"{COLORS['PRIMARY']}[vm]:{COLORS['RESET']} "
+
 
 SYSTEM_MESSAGE = """# Background
 You are a Morph Virtual Machine, a cloud environment for securely executing AI generated code, you are a semi-autonomous agent that can run commands inside of your MorphVM environment.
@@ -129,7 +133,7 @@ def ssh_connect_and_run(
     full_stdout = []
     full_stderr = []
 
-    OUTPUT_HEADER = "\033[38;2;0;0;128m"  # Dark blue for headers
+    OUTPUT_HEADER = COLORS["OUTPUT_HEADER"]
 
     print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
 
@@ -175,8 +179,8 @@ def ssh_connect_and_run(
 
     exit_code = channel.recv_exit_status()
 
-    SUCCESS_COLOR = "\033[38;2;0;128;0m"
-    ERROR_COLOR = "\033[38;2;196;0;0m"
+    SUCCESS_COLOR = COLORS["SUCCESS"]
+    ERROR_COLOR = COLORS["ERROR"]
     status_color = SUCCESS_COLOR if exit_code == 0 else ERROR_COLOR
 
     print(f"\n{OUTPUT_HEADER}Status:{COLORS['RESET']}")
