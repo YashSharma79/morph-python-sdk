@@ -23,6 +23,7 @@ jobs:
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: |
+        uv venv
         uv pip install build
         uv run python -m build
         uv pip install twine
