@@ -1,6 +1,10 @@
+[project]
+name = "morphcloud"
+version = "0.1.12"
+
 [tool.poetry]
 name = "morphcloud"
-version = "0.1.10"
+version = "0.1.12"
 description = "A Python SDK and CLI tool for creating, managing, and interacting with Morph Cloud VMs."
 authors = ["Morph Labs <jobs@morph.so>"]
 license = "Apache-2.0"
@@ -15,12 +19,12 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.11"
-requests = "*"
-tqdm = "*"
-httpx = "*"
-pydantic = "*"
-psutil = "*"
-anthropic = "^0.35.0"
+requests = "^2.32.3"
+tqdm = "^4.67.1"
+httpx = "^0.28.1"
+pydantic = "^2.10.3"
+psutil = "^6.1.0"
+anthropic = "^0.40.0"
 click = "^8.1.7"
 paramiko = "^3.5.0"
 sphinx = "^8.1.3"
