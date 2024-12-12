@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from morphcloud.api import Instance
-from morphcloud._ssh2 import SSHClient, SSHError, CommandResult
+from morphcloud._ssh import SSHClient, SSHError, CommandResult
 
 
 def setup_logging(debug: bool = False):
@@ -80,8 +80,9 @@ class ContainerManager:
             # Create temporary container locally
             create_cmd = [container_cmd, "create", "--name", "temp_container"]
 
-            for host_port, container_port in config.ports.items():
-                create_cmd.extend(["-p", f"{host_port}:{container_port}"])
+            if config.ports:
+                for host_port, container_port in config.ports.items():
+                    create_cmd.extend(["-p", f"{host_port}:{container_port}"])
 
             if config.working_dir:
                 create_cmd.extend(["-w", config.working_dir])
@@ -110,7 +111,7 @@ class ContainerManager:
 
             # Upload OCI spec
             container_info = self._get_container_config(container_cmd)
-            oci_spec = self._prepare_oci_spec(container_info, config)
+            oci_spec = self._prepare_oci_spec(container_info)
             self._upload_oci_spec(oci_spec, config.name)
 
             # Setup systemd service
@@ -270,12 +271,11 @@ class ContainerManager:
             "ExposedPorts": config.get("Config", {}).get("ExposedPorts", {}),
         }
 
-    def _prepare_oci_spec(self, container_info: dict, config: ContainerConfig) -> dict:
+    def _prepare_oci_spec(self, container_info: dict) -> dict:
         """Prepare OCI specification for the container"""
         # Merge environment variables
         env_vars = container_info.get("Env", [])
         env_dict = dict(var.split("=", 1) for var in env_vars if "=" in var)
-        env_dict.update(config.environment)
         env_list = [f"{key}={value}" for key, value in env_dict.items()]
 
         # Prepare command
@@ -444,6 +444,13 @@ class ContainerManager:
         """Execute a command in a running container"""
         return self.ssh.run(f"crun exec -t {container_name} {command}")
 
+    def copy_to_container(
+        self, source: str, destination: str, container_name: str = "default"
+    ):
+        """Copy a file or directory to a running container"""
+        # Copy to the remote system inside the container rootfs
+        remote_path = os.path.join("/var/lib/containers", container_name, "rootfs", destination)
+        self.ssh.copy_to(source, remote_path)
 
 def deploy_container_to_instance(
     instance: Instance,
@@ -454,7 +461,7 @@ def deploy_container_to_instance(
 ):
     """Helper function to deploy a container to an instance"""
     log = logging.getLogger("DeployContainerToInstance")
-    with instance.ssh_connect() as ssh:
+    with instance.ssh() as ssh:
         try:
             config = ContainerConfig(
                 image=image,
