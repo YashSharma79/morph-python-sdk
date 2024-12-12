@@ -9,6 +9,8 @@ import asyncio
 
 import httpx
 
+from morphcloud._ssh import SSHClient
+
 from pydantic import BaseModel, Field, PrivateAttr
 
 
@@ -527,3 +529,12 @@ class Instance(BaseModel):
 
         client.connect(hostname, port=port, username=username, password="")
         return client
+
+    def ssh(self):
+        return SSHClient(self.ssh_connect())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.stop()

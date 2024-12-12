@@ -316,13 +316,10 @@ def exec_command(instance_id, command):
 @click.argument("command", nargs=-1, required=False, type=click.UNPROCESSED)
 def ssh_portal(instance_id, command):
     """Start an SSH session to an instance"""
-    from morphcloud._ssh import ssh_connect
-
     instance = client.instances.get(instance_id)
-    ssh_client = instance.ssh_connect()
-
-    cmd_str = " ".join(command) if command else None
-    ssh_connect(ssh_client, command=cmd_str)
+    with instance.ssh() as ssh:
+        cmd_str = " ".join(command) if command else None
+        ssh.interactive_shell(command=cmd_str)
 
 
 @instance.command("port-forward")
@@ -331,33 +328,42 @@ def ssh_portal(instance_id, command):
 @click.argument("local_port", type=int, required=False)
 def port_forward(instance_id, remote_port, local_port):
     """Forward a port from an instance to your local machine"""
-    from morphcloud._ssh import forward_tunnel
-
     if not local_port:
         local_port = remote_port
 
     instance = client.instances.get(instance_id)
-
-    ssh_client = instance.ssh_connect()
-
-    forward_tunnel(
-        ssh_client,
-        local_port=local_port,
-        remote_port=remote_port,
-    )
+    with instance.ssh() as ssh, ssh.tunnel(
+        local_port=local_port, remote_port=remote_port
+    ) as tunnel:
+        click.echo(f"Local server listening on localhost:{local_port}")
+        click.echo(f"Forwarding to {remote_port}")
+        tunnel.wait()
 
 
 @instance.command("crun")
 @click.option("--image", help="Container image to deploy", default="python:3.11-slim")
 @click.option(
-    "--expose-http", "expose_http", multiple=True, help="HTTP service to expose"
+    "--expose-http",
+    "expose_http",
+    multiple=True,
+    help="HTTP service to expose (format: name:port)",
+)
+@click.option(
+    "--port",
+    "ports",
+    multiple=True,
+    help="Port mappings (format: host:container)",
 )
 @click.option("--vcpus", type=int, help="Number of VCPUs", default=1)
 @click.option("--memory", type=int, help="Memory in MB", default=128)
 @click.option("--disk-size", type=int, help="Disk size in MB", default=700)
 @click.option("--force-rebuild", is_flag=True, help="Force rebuild the container")
-@click.option("--instance-id", default=None, help="Instance ID to deploy the container. If set will use the existing instance")
-@click.option("--verbose/--no-verbose", default=True, help="Enable verbose logging")
+@click.option(
+    "--instance-id",
+    default=None,
+    help="Instance ID to deploy the container. If set will use the existing instance",
+)
+@click.option("--verbose/--no-verbose", default=False, help="Enable verbose logging")
 @click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
@@ -365,6 +371,7 @@ def port_forward(instance_id, remote_port, local_port):
 def run_oci_container(
     image,
     expose_http,
+    ports,
     vcpus,
     memory,
     disk_size,
@@ -374,14 +381,43 @@ def run_oci_container(
     json_mode,
     command,
 ):
-    """Run an OCI container on a Morph instance. If instance_id is not provided, a new instance will be created."""
-    from morphcloud._oci import deploy_container_to_instance
+    """Run an OCI container on a Morph instance.
+
+    Examples:
+        # Run a simple container
+        morph instance crun --image python:3.11-slim
+
+        # Run with port mapping and environment variables
+        morph instance crun --image nginx \\
+            --port 80:80 \\
+            --env NGINX_HOST=example.com \\
+            --expose-http web:80
+
+        # Run on existing instance
+        morph instance crun --instance-id inst_xxx --image python:3.11-slim
+    """
+    from morphcloud._oci import ContainerManager, ContainerConfig
 
     if verbose:
+        from morphcloud._oci import setup_logging
+
+        setup_logging(debug=True)
         click.echo("Starting deployment process...")
         click.echo("Checking snapshots for minimal image")
 
+    # Parse port mappings
+    port_mappings = {}
+    for port in ports:
+        try:
+            host_port, container_port = map(int, port.split(":"))
+            port_mappings[host_port] = container_port
+        except ValueError:
+            raise click.BadParameter(
+                f"Invalid port mapping format: {port}. Use format: host:container"
+            )
+
     if not instance_id:
+        # Create new instance logic
         digest = hashlib.sha256(
             f"{image}{vcpus}{memory}{disk_size}".encode("utf-8")
         ).hexdigest()
@@ -410,28 +446,31 @@ def run_oci_container(
             click.echo("Starting a new instance")
 
         instance = client.instances.start(snapshot_id=snapshot.id)
-
         instance.wait_until_ready()
-
-        for service in expose_http:
-            name, port = service.split(":")
-            click.echo(f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so")
-            instance.expose_http_service(name, int(port))
     else:
         instance = client.instances.get(instance_id)
-
-        # Check if the instance is running
         instance.wait_until_ready()
 
-        # Add the HTTP services if provided and not already exposed
-        for service in expose_http:
+    # Setup HTTP services
+    for service in expose_http:
+        try:
             name, port = service.split(":")
+            port = int(port)
             if not any(
-                svc.name == name and svc.port == int(port)
+                svc.name == name and svc.port == port
                 for svc in instance.networking.http_services
             ):
-                click.echo(f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so")
-                instance.expose_http_service(name, int(port))
+                click.echo(
+                    f"https://{name}-{instance.id.replace('_', '-')}.http.cloud.morph.so"
+                )
+                instance.expose_http_service(name, port)
+                # Add to port mappings if not already there
+                if port not in port_mappings.values():
+                    port_mappings[port] = port
+        except ValueError:
+            raise click.BadParameter(
+                f"Invalid HTTP service format: {service}. Use format: name:port"
+            )
 
     if json_mode:
         click.echo(format_json(instance))
@@ -441,10 +480,19 @@ def run_oci_container(
     if verbose:
         click.echo("Deploying container")
 
-    if not command:
-        command = ["sleep", "infinity"]
+    # Create container configuration
+    container_config = ContainerConfig(
+        image=image,
+        name="default",
+        ports=port_mappings,
+        command=list(command) if command else ["sleep", "infinity"],
+    )
 
-    deploy_container_to_instance(instance, image, command=command)
+    # Deploy container using ContainerManager
+    with instance.ssh() as ssh:
+        manager = ContainerManager(ssh)
+        manager.deploy_container(container_config)
+
     click.echo(instance.id)
 
 
@@ -456,7 +504,6 @@ def chat(instance_id, instructions):
     if instructions:
         print("Instructions:", instructions)
     from morphcloud._llm import agent_loop
-
 
     instance = client.instances.get(instance_id)
 

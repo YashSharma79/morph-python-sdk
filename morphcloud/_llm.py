@@ -3,14 +3,14 @@ import os
 import sys
 import json
 import copy
-import argparse
+import time
 
 from typing import List, Dict, Any
 
 from ._scramble import scramble_print, SCRAMBLE_TEXT
 
 try:
-    import gnureadline as readline
+    import gnureadline as readline # type: ignore
 except ImportError:
     try:
         import readline
@@ -121,98 +121,79 @@ def add_cache_control_to_last_content(
 def ssh_connect_and_run(
     instance, command: str
 ) -> Dict[str, Any]:
-    ssh = instance.ssh_connect()
+    """Execute a command over SSH with real-time output streaming"""
+    with instance.ssh_connect() as ssh:
+        # Get ANSI color codes ready
+        OUTPUT_HEADER = COLORS["OUTPUT_HEADER"]
+        print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
+        print(f"\n{OUTPUT_HEADER}Output:{COLORS['RESET']}")
 
-    # Start the command
-    channel = ssh.get_transport().open_session()
-    channel.get_pty()
-    channel.exec_command(command)
+        last_stdout = ""
+        last_stderr = ""
 
-    stdout_buffer = ""
-    stderr_buffer = ""
-    full_stdout = []
-    full_stderr = []
+        # Run the command in background to get real-time output
+        with ssh.run(command, background=True, get_pty=True) as process:
+            while True:
+                # Print stdout in real-time
+                current_stdout = process.stdout
+                if current_stdout != last_stdout:
+                    new_output = current_stdout[len(last_stdout):]
+                    print(f"{COLORS['TEXT']}{new_output}{COLORS['RESET']}", end='', flush=True)
+                    last_stdout = current_stdout
 
-    OUTPUT_HEADER = COLORS["OUTPUT_HEADER"]
+                # Print stderr in real-time
+                current_stderr = process.stderr
+                if current_stderr != last_stderr:
+                    new_stderr = current_stderr[len(last_stderr):]
+                    print(f"{COLORS['HIGHLIGHT']}[stderr] {new_stderr}{COLORS['RESET']}", end='', flush=True)
+                    last_stderr = current_stderr
 
-    print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
+                # Check if process is done
+                if not ssh._client.get_transport().is_active():
+                    break
 
-    print(f"\n{OUTPUT_HEADER}Output:{COLORS['RESET']}")
+                time.sleep(0.01)
 
-    while True:
-        if channel.recv_ready():
-            chunk = channel.recv(1024).decode("utf-8", errors="replace")
-            stdout_buffer += chunk
-            while "\n" in stdout_buffer:
-                line, stdout_buffer = stdout_buffer.split("\n", 1)
-                if line:
-                    print(f"{COLORS['TEXT']}{line}{COLORS['RESET']}", flush=True)
-                    full_stdout.append(line)
+            # Get final output from the process
+            final_stdout = process.stdout
+            final_stderr = process.stderr
 
-        if channel.recv_stderr_ready():
-            chunk = channel.recv_stderr(1024).decode("utf-8", errors="replace")
-            stderr_buffer += chunk
-            while "\n" in stderr_buffer:
-                line, stderr_buffer = stderr_buffer.split("\n", 1)
-                if line:
-                    print(
-                        f"{COLORS['HIGHLIGHT']}[stderr] {line}{COLORS['RESET']}",
-                        flush=True,
-                    )
-                    full_stderr.append(line)
+            # Get returncode from the channel
+            returncode = process.channel.recv_exit_status()
 
-        if channel.exit_status_ready():
-            if stdout_buffer:
-                print(f"{COLORS['TEXT']}{stdout_buffer}{COLORS['RESET']}", flush=True)
-                full_stdout.append(stdout_buffer)
-            if stderr_buffer:
+            # Print status
+            SUCCESS_COLOR = COLORS["SUCCESS"]
+            ERROR_COLOR = COLORS["ERROR"]
+            status_color = SUCCESS_COLOR if returncode == 0 else ERROR_COLOR
+
+            print(f"\n{OUTPUT_HEADER}Status:{COLORS['RESET']}")
+            print(
+                f"{status_color}{'✓ Command succeeded' if returncode == 0 else '✗ Command failed'} (exit code: {returncode}){COLORS['RESET']}"
+            )
+            if final_stderr:
                 print(
-                    f"{COLORS['HIGHLIGHT']}[stderr] {stderr_buffer}{COLORS['RESET']}",
-                    flush=True,
+                    f"{ERROR_COLOR}Command produced error output - see [stderr] messages above{COLORS['RESET']}"
                 )
-                full_stderr.append(stderr_buffer)
-            break
+            print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
 
-        import time
+            # Reset terminal settings
+            print(
+                "\033[?25h"  # Show cursor
+                "\033[?7h"   # Enable line wrapping
+                "\033[?47l"  # Restore screen
+                "\033[!p"    # Soft reset
+                "\033[?1l"   # Reset cursor keys to default
+                "\033[?12l"  # Stop blinking cursor
+                "\033[?25h",  # Ensure cursor is visible
+                end="",
+                flush=True,
+            )
 
-        time.sleep(0.01)
-
-    exit_code = channel.recv_exit_status()
-
-    SUCCESS_COLOR = COLORS["SUCCESS"]
-    ERROR_COLOR = COLORS["ERROR"]
-    status_color = SUCCESS_COLOR if exit_code == 0 else ERROR_COLOR
-
-    print(f"\n{OUTPUT_HEADER}Status:{COLORS['RESET']}")
-    print(
-        f"{status_color}{'✓ Command succeeded' if exit_code == 0 else '✗ Command failed'} (exit code: {exit_code}){COLORS['RESET']}"
-    )
-    if full_stderr:
-        print(
-            f"{ERROR_COLOR}Command produced error output - see [stderr] messages above{COLORS['RESET']}"
-        )
-    print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
-
-    # Reset terminal settings using ANSI escape sequences
-    print(
-        "\033[?25h"  # Show cursor
-        "\033[?7h"  # Enable line wrapping
-        "\033[?47l"  # Restore screen
-        "\033[!p"  # Soft reset
-        "\033[?1l"  # Reset cursor keys to default
-        "\033[?12l"  # Stop blinking cursor
-        "\033[?25h",  # Ensure cursor is visible
-        end="",
-        flush=True,
-    )
-
-    ssh.close()
-
-    return {
-        "exit_code": exit_code,
-        "stdout": "\n".join(full_stdout),
-        "stderr": "\n".join(full_stderr),
-    }
+            return {
+                "exit_code": returncode,
+                "stdout": final_stdout,
+                "stderr": final_stderr,
+            }
 
 
 def run_tool(
@@ -235,7 +216,7 @@ def call_model(client: Anthropic, system: str, messages: List[Dict], tools: List
         system=system,
         messages=add_cache_control_to_last_content(messages),
         max_tokens=MAX_TOKENS,
-        tools=tools,
+        tools=tools, # type: ignore
         stream=True,
         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
     ) # type: ignore
@@ -254,6 +235,7 @@ def process_assistant_message(response_stream):
         elif content_block_type == "tool_use":
             tool_input_json = content_acc.getvalue()
             tool_input = json.loads(tool_input_json) if tool_input_json else {}
+            assert current_tool_block is not None
             current_tool_block["input"] = tool_input
             response_msg["content"].append(current_tool_block)
 
