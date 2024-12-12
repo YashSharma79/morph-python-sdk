@@ -4,6 +4,7 @@ import io
 import os
 import sys
 import tty
+import time
 import fcntl
 import socket
 import signal
@@ -320,6 +321,7 @@ class SSHClient:
         command: typing.Union[str, list],
         background: bool = False,
         get_pty: bool = True,
+        timeout: typing.Optional[float] = None,
     ) -> typing.Union[CommandResult, BackgroundProcess]:
         """Run a command with consistent output handling for both PTY and non-PTY modes"""
         if isinstance(command, list):
@@ -334,6 +336,7 @@ class SSHClient:
         if get_pty:
             channel.get_pty(term="dumb")
 
+        start = time.monotonic()
         channel.exec_command(command)
 
         if background:
@@ -356,6 +359,9 @@ class SSHClient:
                 chunk = channel.recv_stderr(4096)
                 if chunk:
                     stderr_data.append(chunk)
+
+            if timeout is not None and time.monotonic() - start > timeout:
+                raise SSHError(f"Command '{command}' timed out after {timeout} seconds\nstdout: {b''.join(stdout_data).decode()}\nstderr: {b''.join(stderr_data).decode()}")
 
         stdout = b"".join(stdout_data).decode("utf-8", errors="replace")
         stderr = b"".join(stderr_data).decode("utf-8", errors="replace")
