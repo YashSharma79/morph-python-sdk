@@ -122,7 +122,7 @@ def ssh_connect_and_run(
     instance, command: str
 ) -> Dict[str, Any]:
     """Execute a command over SSH with real-time output streaming"""
-    with instance.ssh_connect() as ssh:
+    with instance.ssh() as ssh:
         # Get ANSI color codes ready
         OUTPUT_HEADER = COLORS["OUTPUT_HEADER"]
         print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
@@ -149,7 +149,7 @@ def ssh_connect_and_run(
                     last_stderr = current_stderr
 
                 # Check if process is done
-                if not ssh._client.get_transport().is_active():
+                if process.completed:
                     break
 
                 time.sleep(0.01)

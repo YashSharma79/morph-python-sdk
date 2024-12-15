@@ -191,6 +191,10 @@ class BackgroundProcess:
         self._stdout_thread.join()
         self._stderr_thread.join()
 
+    @property
+    def completed(self) -> bool:
+        """Check if the background process has completed"""
+        return self.channel.exit_status_ready()
 
 class PortTunnel:
     """Represents an SSH port tunnel"""
