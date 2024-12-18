@@ -119,12 +119,12 @@ class ImageAPI(BaseAPI):
     def list(self) -> typing.List[Image]:
         """List all base images available to the user."""
         response = self._client._http_client.get("/image")
-        return [Image(**image)._set_api(self) for image in response.json()["data"]]
+        return [Image.model_validate(image)._set_api(self) for image in response.json()["data"]]
 
     async def alist(self) -> typing.List[Image]:
         """List all base images available to the user."""
         response = await self._client._async_http_client.get("/image")
-        return [Image(**image)._set_api(self) for image in response.json()["data"]]
+        return [Image.model_validate(image)._set_api(self) for image in response.json()["data"]]
 
 
 class Image(BaseModel):
@@ -176,7 +176,7 @@ class SnapshotAPI(BaseAPI):
             params["digest"] = digest
         response = self._client._http_client.get("/snapshot", params=params)
         return [
-            Snapshot(**snapshot)._set_api(self) for snapshot in response.json()["data"]
+            Snapshot.model_validate(snapshot)._set_api(self) for snapshot in response.json()["data"]
         ]
 
     async def alist(self, digest: typing.Optional[str] = None) -> typing.List[Snapshot]:
@@ -186,7 +186,7 @@ class SnapshotAPI(BaseAPI):
             params["digest"] = digest
         response = await self._client._async_http_client.get("/snapshot", params=params)
         return [
-            Snapshot(**snapshot)._set_api(self) for snapshot in response.json()["data"]
+            Snapshot.model_validate(snapshot)._set_api(self) for snapshot in response.json()["data"]
         ]
 
     def create(
@@ -209,7 +209,7 @@ class SnapshotAPI(BaseAPI):
                 "readiness_check": {"type": "timeout", "timeout": 10.0},
             },
         )
-        return Snapshot(**response.json())._set_api(self)
+        return Snapshot.model_validate(response.json())._set_api(self)
 
     async def acreate(
         self,
@@ -231,17 +231,17 @@ class SnapshotAPI(BaseAPI):
                 "readiness_check": {"type": "timeout", "timeout": 10.0},
             },
         )
-        return Snapshot(**response.json())._set_api(self)
+        return Snapshot.model_validate(response.json())._set_api(self)
 
     def get(self, snapshot_id: str) -> Snapshot:
         """Get a snapshot by ID."""
         response = self._client._http_client.get(f"/snapshot/{snapshot_id}")
-        return Snapshot(**response.json())._set_api(self)
+        return Snapshot.model_validate(response.json())._set_api(self)
 
     async def aget(self, snapshot_id: str) -> Snapshot:
         """Get a snapshot by ID."""
         response = await self._client._async_http_client.get(f"/snapshot/{snapshot_id}")
-        return Snapshot(**response.json())._set_api(self)
+        return Snapshot.model_validate(response.json())._set_api(self)
 
 
 class Snapshot(BaseModel):
@@ -313,14 +313,14 @@ class InstanceAPI(BaseAPI):
         """List all instances available to the user."""
         response = self._client._http_client.get("/instance")
         return [
-            Instance(**instance)._set_api(self) for instance in response.json()["data"]
+            Instance.model_validate(instance)._set_api(self) for instance in response.json()["data"]
         ]
 
     async def alist(self) -> typing.List[Instance]:
         """List all instances available to the user."""
         response = await self._client._async_http_client.get("/instance")
         return [
-            Instance(**instance)._set_api(self) for instance in response.json()["data"]
+            Instance.model_validate(instance)._set_api(self) for instance in response.json()["data"]
         ]
 
     def start(self, snapshot_id: str) -> Instance:
@@ -329,7 +329,7 @@ class InstanceAPI(BaseAPI):
             "/instance",
             params={"snapshot_id": snapshot_id},
         )
-        return Instance(**response.json())._set_api(self)
+        return Instance.model_validate(response.json())._set_api(self)
 
     async def astart(self, snapshot_id: str) -> Instance:
         """Create a new instance from a snapshot."""
@@ -337,17 +337,17 @@ class InstanceAPI(BaseAPI):
             "/instance",
             params={"snapshot_id": snapshot_id},
         )
-        return Instance(**response.json())._set_api(self)
+        return Instance.model_validate(response.json())._set_api(self)
 
     def get(self, instance_id: str) -> Instance:
         """Get an instance by its ID."""
         response = self._client._http_client.get(f"/instance/{instance_id}")
-        return Instance(**response.json())._set_api(self)
+        return Instance.model_validate(response.json())._set_api(self)
 
     async def aget(self, instance_id: str) -> Instance:
         """Get an instance by its ID."""
         response = await self._client._async_http_client.get(f"/instance/{instance_id}")
-        return Instance(**response.json())._set_api(self)
+        return Instance.model_validate(response.json())._set_api(self)
 
     def stop(self, instance_id: str) -> None:
         """Stop an instance by its ID."""
@@ -387,14 +387,14 @@ class Instance(BaseModel):
     def snapshot(self) -> Snapshot:
         """Save the instance as a snapshot."""
         response = self._api._client._http_client.post(f"/instance/{self.id}/snapshot")
-        return Snapshot(**response.json())._set_api(self._api._client.snapshots)
+        return Snapshot.model_validate(response.json())._set_api(self._api._client.snapshots)
 
     async def asnapshot(self) -> Snapshot:
         """Save the instance as a snapshot."""
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/snapshot"
         )
-        return Snapshot(**response.json())._set_api(self._api._client.snapshots)
+        return Snapshot.model_validate(response.json())._set_api(self._api._client.snapshots)
 
     def branch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
         """Branch the instance into multiple copies."""
@@ -402,9 +402,9 @@ class Instance(BaseModel):
             f"/instance/{self.id}/branch", params={"count": count}
         )
         _json = response.json()
-        snapshot = Snapshot(**_json["snapshot"])._set_api(self._api._client.snapshots)
+        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(self._api._client.snapshots)
         instances = [
-            Instance(**instance)._set_api(self._api) for instance in _json["instances"]
+            Instance.model_validate(instance)._set_api(self._api) for instance in _json["instances"]
         ]
         return snapshot, instances
 
@@ -416,9 +416,9 @@ class Instance(BaseModel):
             f"/instance/{self.id}/branch", params={"count": count}
         )
         _json = response.json()
-        snapshot = Snapshot(**_json["snapshot"])._set_api(self._api._client.snapshots)
+        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(self._api._client.snapshots)
         instances = [
-            Instance(**instance)._set_api(self._api) for instance in _json["instances"]
+            Instance.model_validate(instance)._set_api(self._api) for instance in _json["instances"]
         ]
         return snapshot, instances
 
@@ -465,7 +465,7 @@ class Instance(BaseModel):
             f"/instance/{self.id}/exec",
             json={"command": command},
         )
-        return InstanceExecResponse(**response.json())
+        return InstanceExecResponse.model_validate(response.json())
 
     async def aexec(
         self, command: typing.Union[str, typing.List[str]]
@@ -476,7 +476,7 @@ class Instance(BaseModel):
             f"/instance/{self.id}/exec",
             json={"command": command},
         )
-        return InstanceExecResponse(**response.json())
+        return InstanceExecResponse.model_validate(response.json())
 
     def wait_until_ready(self, timeout: typing.Optional[float] = None) -> None:
         """Wait until the instance is ready."""
