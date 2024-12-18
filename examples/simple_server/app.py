@@ -1,10 +1,11 @@
 import os
+
 from fasthtml.common import *
 
 hdrs = (
     MarkdownJS(),
-    HighlightJS(langs=['python', 'javascript', 'html', 'css', 'dockerfile']),
-    Style('body {font-family: Arial, sans-serif;}'),
+    HighlightJS(langs=["python", "javascript", "html", "css", "dockerfile"]),
+    Style("body {font-family: Arial, sans-serif;}"),
 )
 
 app = FastHTML(hdrs=hdrs)
@@ -12,7 +13,8 @@ app = FastHTML(hdrs=hdrs)
 
 current_dir = os.getcwd()
 
-@app.route('/{path}')
+
+@app.route("/{path}")
 def index(path: str):
     path = path or ""
 
@@ -27,18 +29,16 @@ def index(path: str):
                 return Div(f.read(), cls="marked")
         return f"Hello from file {current_dir}/{path}"
 
-    return (
-        Ul(
-            *[
-                Li(
-                    A(
-                        f"{file}",
-                        href=f"{path}/{file}", text=file)
-                )
-                for file in os.listdir(f"{current_dir}/{path}")
-                if file.endswith(".md") or os.path.isdir(f"{current_dir}/{path}/{file}") and not file.startswith(".") and not file.startswith("__")
-            ]
-        )
+    return Ul(
+        *[
+            Li(A(f"{file}", href=f"{path}/{file}", text=file))
+            for file in os.listdir(f"{current_dir}/{path}")
+            if file.endswith(".md")
+            or os.path.isdir(f"{current_dir}/{path}/{file}")
+            and not file.startswith(".")
+            and not file.startswith("__")
+        ]
     )
+
 
 serve(port=8000)

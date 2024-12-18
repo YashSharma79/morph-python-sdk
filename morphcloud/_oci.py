@@ -1,14 +1,14 @@
-import os
-import sys
 import json
 import logging
-import tempfile
+import os
 import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from morphcloud._ssh import CommandResult, SSHClient, SSHError
 from morphcloud.api import Instance
-from morphcloud._ssh import SSHClient, SSHError, CommandResult
 
 
 def setup_logging(debug: bool = False):
@@ -449,8 +449,11 @@ class ContainerManager:
     ):
         """Copy a file or directory to a running container"""
         # Copy to the remote system inside the container rootfs
-        remote_path = os.path.join("/var/lib/containers", container_name, "rootfs", destination)
+        remote_path = os.path.join(
+            "/var/lib/containers", container_name, "rootfs", destination
+        )
         self.ssh.copy_to(source, remote_path)
+
 
 def deploy_container_to_instance(
     instance: Instance,

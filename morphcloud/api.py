@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import os
-import time
+import asyncio
 import enum
 import json
+import os
+import time
 import typing
-import asyncio
 
 import httpx
+from pydantic import BaseModel, Field, PrivateAttr
 
 from morphcloud._ssh import SSHClient
-
-from pydantic import BaseModel, Field, PrivateAttr
 
 
 class ApiError(Exception):
@@ -119,12 +118,18 @@ class ImageAPI(BaseAPI):
     def list(self) -> typing.List[Image]:
         """List all base images available to the user."""
         response = self._client._http_client.get("/image")
-        return [Image.model_validate(image)._set_api(self) for image in response.json()["data"]]
+        return [
+            Image.model_validate(image)._set_api(self)
+            for image in response.json()["data"]
+        ]
 
     async def alist(self) -> typing.List[Image]:
         """List all base images available to the user."""
         response = await self._client._async_http_client.get("/image")
-        return [Image.model_validate(image)._set_api(self) for image in response.json()["data"]]
+        return [
+            Image.model_validate(image)._set_api(self)
+            for image in response.json()["data"]
+        ]
 
 
 class Image(BaseModel):
@@ -176,7 +181,8 @@ class SnapshotAPI(BaseAPI):
             params["digest"] = digest
         response = self._client._http_client.get("/snapshot", params=params)
         return [
-            Snapshot.model_validate(snapshot)._set_api(self) for snapshot in response.json()["data"]
+            Snapshot.model_validate(snapshot)._set_api(self)
+            for snapshot in response.json()["data"]
         ]
 
     async def alist(self, digest: typing.Optional[str] = None) -> typing.List[Snapshot]:
@@ -186,7 +192,8 @@ class SnapshotAPI(BaseAPI):
             params["digest"] = digest
         response = await self._client._async_http_client.get("/snapshot", params=params)
         return [
-            Snapshot.model_validate(snapshot)._set_api(self) for snapshot in response.json()["data"]
+            Snapshot.model_validate(snapshot)._set_api(self)
+            for snapshot in response.json()["data"]
         ]
 
     def create(
@@ -313,14 +320,16 @@ class InstanceAPI(BaseAPI):
         """List all instances available to the user."""
         response = self._client._http_client.get("/instance")
         return [
-            Instance.model_validate(instance)._set_api(self) for instance in response.json()["data"]
+            Instance.model_validate(instance)._set_api(self)
+            for instance in response.json()["data"]
         ]
 
     async def alist(self) -> typing.List[Instance]:
         """List all instances available to the user."""
         response = await self._client._async_http_client.get("/instance")
         return [
-            Instance.model_validate(instance)._set_api(self) for instance in response.json()["data"]
+            Instance.model_validate(instance)._set_api(self)
+            for instance in response.json()["data"]
         ]
 
     def start(self, snapshot_id: str) -> Instance:
@@ -387,14 +396,18 @@ class Instance(BaseModel):
     def snapshot(self) -> Snapshot:
         """Save the instance as a snapshot."""
         response = self._api._client._http_client.post(f"/instance/{self.id}/snapshot")
-        return Snapshot.model_validate(response.json())._set_api(self._api._client.snapshots)
+        return Snapshot.model_validate(response.json())._set_api(
+            self._api._client.snapshots
+        )
 
     async def asnapshot(self) -> Snapshot:
         """Save the instance as a snapshot."""
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/snapshot"
         )
-        return Snapshot.model_validate(response.json())._set_api(self._api._client.snapshots)
+        return Snapshot.model_validate(response.json())._set_api(
+            self._api._client.snapshots
+        )
 
     def branch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
         """Branch the instance into multiple copies."""
@@ -402,9 +415,12 @@ class Instance(BaseModel):
             f"/instance/{self.id}/branch", params={"count": count}
         )
         _json = response.json()
-        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(self._api._client.snapshots)
+        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
+            self._api._client.snapshots
+        )
         instances = [
-            Instance.model_validate(instance)._set_api(self._api) for instance in _json["instances"]
+            Instance.model_validate(instance)._set_api(self._api)
+            for instance in _json["instances"]
         ]
         return snapshot, instances
 
@@ -416,9 +432,12 @@ class Instance(BaseModel):
             f"/instance/{self.id}/branch", params={"count": count}
         )
         _json = response.json()
-        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(self._api._client.snapshots)
+        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
+            self._api._client.snapshots
+        )
         instances = [
-            Instance.model_validate(instance)._set_api(self._api) for instance in _json["instances"]
+            Instance.model_validate(instance)._set_api(self._api)
+            for instance in _json["instances"]
         ]
         return snapshot, instances
 

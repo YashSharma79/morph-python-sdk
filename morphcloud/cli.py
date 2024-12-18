@@ -1,6 +1,6 @@
-import sys
-import json
 import hashlib
+import json
+import sys
 
 import click
 
@@ -332,9 +332,10 @@ def port_forward(instance_id, remote_port, local_port):
         local_port = remote_port
 
     instance = client.instances.get(instance_id)
-    with instance.ssh() as ssh, ssh.tunnel(
-        local_port=local_port, remote_port=remote_port
-    ) as tunnel:
+    with (
+        instance.ssh() as ssh,
+        ssh.tunnel(local_port=local_port, remote_port=remote_port) as tunnel,
+    ):
         click.echo(f"Local server listening on localhost:{local_port}")
         click.echo(f"Forwarding to {remote_port}")
         tunnel.wait()
@@ -396,7 +397,7 @@ def run_oci_container(
         # Run on existing instance
         morph instance crun --instance-id inst_xxx --image python:3.11-slim
     """
-    from morphcloud._oci import ContainerManager, ContainerConfig
+    from morphcloud._oci import ContainerConfig, ContainerManager
 
     if verbose:
         from morphcloud._oci import setup_logging

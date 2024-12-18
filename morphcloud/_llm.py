@@ -1,16 +1,15 @@
+import copy
 import io
+import json
 import os
 import sys
-import json
-import copy
 import time
+from typing import Any, Dict, List
 
-from typing import List, Dict, Any
-
-from ._scramble import scramble_print, SCRAMBLE_TEXT
+from ._scramble import SCRAMBLE_TEXT, scramble_print
 
 try:
-    import gnureadline as readline # type: ignore
+    import gnureadline as readline  # type: ignore
 except ImportError:
     try:
         import readline
@@ -118,9 +117,7 @@ def add_cache_control_to_last_content(
     return new_messages
 
 
-def ssh_connect_and_run(
-    instance, command: str
-) -> Dict[str, Any]:
+def ssh_connect_and_run(instance, command: str) -> Dict[str, Any]:
     """Execute a command over SSH with real-time output streaming"""
     with instance.ssh() as ssh:
         # Get ANSI color codes ready
@@ -137,15 +134,23 @@ def ssh_connect_and_run(
                 # Print stdout in real-time
                 current_stdout = process.stdout
                 if current_stdout != last_stdout:
-                    new_output = current_stdout[len(last_stdout):]
-                    print(f"{COLORS['TEXT']}{new_output}{COLORS['RESET']}", end='', flush=True)
+                    new_output = current_stdout[len(last_stdout) :]
+                    print(
+                        f"{COLORS['TEXT']}{new_output}{COLORS['RESET']}",
+                        end="",
+                        flush=True,
+                    )
                     last_stdout = current_stdout
 
                 # Print stderr in real-time
                 current_stderr = process.stderr
                 if current_stderr != last_stderr:
-                    new_stderr = current_stderr[len(last_stderr):]
-                    print(f"{COLORS['HIGHLIGHT']}[stderr] {new_stderr}{COLORS['RESET']}", end='', flush=True)
+                    new_stderr = current_stderr[len(last_stderr) :]
+                    print(
+                        f"{COLORS['HIGHLIGHT']}[stderr] {new_stderr}{COLORS['RESET']}",
+                        end="",
+                        flush=True,
+                    )
                     last_stderr = current_stderr
 
                 # Check if process is done
@@ -179,10 +184,10 @@ def ssh_connect_and_run(
             # Reset terminal settings
             print(
                 "\033[?25h"  # Show cursor
-                "\033[?7h"   # Enable line wrapping
+                "\033[?7h"  # Enable line wrapping
                 "\033[?47l"  # Restore screen
-                "\033[!p"    # Soft reset
-                "\033[?1l"   # Reset cursor keys to default
+                "\033[!p"  # Soft reset
+                "\033[?1l"  # Reset cursor keys to default
                 "\033[?12l"  # Stop blinking cursor
                 "\033[?25h",  # Ensure cursor is visible
                 end="",
@@ -196,9 +201,7 @@ def ssh_connect_and_run(
             }
 
 
-def run_tool(
-    tool_call: ToolCall, instance
-) -> Dict[str, Any]:
+def run_tool(tool_call: ToolCall, instance) -> Dict[str, Any]:
     if tool_call.name == "run_command":
         cmd = tool_call.input.get("command", "")
         print(
@@ -216,10 +219,10 @@ def call_model(client: Anthropic, system: str, messages: List[Dict], tools: List
         system=system,
         messages=add_cache_control_to_last_content(messages),
         max_tokens=MAX_TOKENS,
-        tools=tools, # type: ignore
+        tools=tools,  # type: ignore
         stream=True,
         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-    ) # type: ignore
+    )  # type: ignore
 
 
 def process_assistant_message(response_stream):
@@ -401,4 +404,3 @@ def agent_loop(instance):
                 )
 
             print()
-

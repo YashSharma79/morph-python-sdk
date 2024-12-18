@@ -1,9 +1,8 @@
 import re
 import time
-
-from enum import Enum
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict
+from enum import Enum
+from typing import Dict, Optional, Tuple
 
 import paramiko
 
@@ -82,12 +81,16 @@ class OSCParams:
         return cls(
             type=osc_type,
             prompt_kind=PromptKind(raw_params["k"]) if "k" in raw_params else None,
-            continuation=ContinuationKind(raw_params["cl"])
-            if "cl" in raw_params
-            else None,
-            exit_code=exit_code
-            if exit_code is not None
-            else (int(raw_params["exit_code"]) if "exit_code" in raw_params else None),
+            continuation=(
+                ContinuationKind(raw_params["cl"]) if "cl" in raw_params else None
+            ),
+            exit_code=(
+                exit_code
+                if exit_code is not None
+                else (
+                    int(raw_params["exit_code"]) if "exit_code" in raw_params else None
+                )
+            ),
             aid=int(raw_params["aid"]) if "aid" in raw_params else None,
             raw_params=raw_params,
         )
@@ -223,4 +226,3 @@ class SemanticShellClient:
         """Close the SSH connection."""
         self.channel.close()
         self.client.close()
-

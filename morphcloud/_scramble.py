@@ -1,12 +1,11 @@
-import time
 import array
-import shutil
 import random
+import shutil
 import threading
-
-from typing import List, Union, Callable, Optional
-from functools import lru_cache
+import time
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Callable, List, Optional, Union
 
 
 @dataclass(frozen=True)

@@ -1,31 +1,32 @@
 from __future__ import annotations
 
-import io
-import os
-import sys
-import tty
-import time
 import fcntl
-import socket
-import signal
-import select
-import typing
-import struct
-import pathlib
-import termios
+import io
 import logging
+import os
+import pathlib
+import select
+import signal
+import socket
+import struct
+import sys
+import termios
 import threading
-
+import time
+import tty
+import typing
 from dataclasses import dataclass
 
 import paramiko
 
-
 logger = logging.getLogger(__name__)
 
 
-def _interactive_shell(client: paramiko.SSHClient, command: typing.Optional[str] = None):
+def _interactive_shell(
+    client: paramiko.SSHClient, command: typing.Optional[str] = None
+):
     """Create an interactive shell session or run a command interactively"""
+
     def get_terminal_size():
         """Get the size of the terminal window."""
         try:
@@ -196,6 +197,7 @@ class BackgroundProcess:
         """Check if the background process has completed"""
         return self.channel.exit_status_ready()
 
+
 class PortTunnel:
     """Represents an SSH port tunnel"""
 
@@ -365,7 +367,9 @@ class SSHClient:
                     stderr_data.append(chunk)
 
             if timeout is not None and time.monotonic() - start > timeout:
-                raise SSHError(f"Command '{command}' timed out after {timeout} seconds\nstdout: {b''.join(stdout_data).decode()}\nstderr: {b''.join(stderr_data).decode()}")
+                raise SSHError(
+                    f"Command '{command}' timed out after {timeout} seconds\nstdout: {b''.join(stdout_data).decode()}\nstderr: {b''.join(stderr_data).decode()}"
+                )
 
         stdout = b"".join(stdout_data).decode("utf-8", errors="replace")
         stderr = b"".join(stderr_data).decode("utf-8", errors="replace")
@@ -419,4 +423,3 @@ class SSHClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
