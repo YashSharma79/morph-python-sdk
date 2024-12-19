@@ -73,5 +73,5 @@ ENTRYPOINT ["uv", "run", "app.py"]
 
 ```bash
 docker build -t markdown-server .
-morphcloud instance crun --image markdown-server --expose-port web:8000
+morphcloud instance crun --image markdown-server --expose-http web:8000
 ```
