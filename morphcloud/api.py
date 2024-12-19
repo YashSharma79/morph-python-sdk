@@ -1,16 +1,33 @@
 from __future__ import annotations
 
-import asyncio
+import os
 import enum
 import json
-import os
 import time
 import typing
+import asyncio
+
+from functools import lru_cache
 
 import httpx
+
 from pydantic import BaseModel, Field, PrivateAttr
 
 from morphcloud._ssh import SSHClient
+
+
+@lru_cache
+def _dummy_key():
+    import io
+    import paramiko
+
+    key = paramiko.RSAKey.generate(1024)
+    key_file = io.StringIO()
+    key.write_private_key(key_file)
+    key_file.seek(0)
+    pkey = paramiko.RSAKey.from_private_key(key_file)
+
+    return pkey
 
 
 class ApiError(Exception):
@@ -174,22 +191,28 @@ class SnapshotRefs(BaseModel):
 
 
 class SnapshotAPI(BaseAPI):
-    def list(self, digest: typing.Optional[str] = None) -> typing.List[Snapshot]:
+    def list(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Snapshot]:
         """List all snapshots available to the user."""
         params = {}
         if digest is not None:
             params["digest"] = digest
+        if metadata is not None:
+            for k, v in metadata.items():
+                params[f"metadata[{k}]"] = v
         response = self._client._http_client.get("/snapshot", params=params)
         return [
             Snapshot.model_validate(snapshot)._set_api(self)
             for snapshot in response.json()["data"]
         ]
 
-    async def alist(self, digest: typing.Optional[str] = None) -> typing.List[Snapshot]:
+    async def alist(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Snapshot]:
         """List all snapshots available to the user."""
         params = {}
         if digest is not None:
             params["digest"] = digest
+        if metadata is not None:
+            for k, v in metadata.items():
+                params[f"metadata[{k}]"] = v
         response = await self._client._async_http_client.get("/snapshot", params=params)
         return [
             Snapshot.model_validate(snapshot)._set_api(self)
@@ -203,6 +226,7 @@ class SnapshotAPI(BaseAPI):
         memory: typing.Optional[int] = None,
         disk_size: typing.Optional[int] = None,
         digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
         """Create a new snapshot from a base image and a machine configuration."""
         response = self._client._http_client.post(
@@ -214,6 +238,7 @@ class SnapshotAPI(BaseAPI):
                 "disk_size": disk_size,
                 "digest": digest,
                 "readiness_check": {"type": "timeout", "timeout": 10.0},
+                "metadata": metadata or {},
             },
         )
         return Snapshot.model_validate(response.json())._set_api(self)
@@ -225,6 +250,7 @@ class SnapshotAPI(BaseAPI):
         memory: typing.Optional[int] = None,
         disk_size: typing.Optional[int] = None,
         digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
         """Create a new snapshot from a base image and a machine configuration."""
         response = await self._client._async_http_client.post(
@@ -236,6 +262,7 @@ class SnapshotAPI(BaseAPI):
                 "disk_size": disk_size,
                 "digest": digest,
                 "readiness_check": {"type": "timeout", "timeout": 10.0},
+                "metadata": metadata or {},
             },
         )
         return Snapshot.model_validate(response.json())._set_api(self)
@@ -267,6 +294,10 @@ class Snapshot(BaseModel):
     digest: typing.Optional[str] = Field(
         default=None, description="User provided digest of the snapshot content"
     )
+    metadata: typing.Dict[str, str] = Field(
+        default_factory=dict,
+        description="User provided metadata for the snapshot",
+    )
 
     _api: SnapshotAPI = PrivateAttr()
 
@@ -286,6 +317,40 @@ class Snapshot(BaseModel):
         )
         response.raise_for_status()
 
+    def set_metadata(self, metadata: typing.Dict[str, str]) -> None:
+        """Set metadata for the snapshot."""
+        response = self._api._client._http_client.post(
+            f"/snapshot/{self.id}/metadata",
+            json=metadata,
+        )
+        response.raise_for_status()
+        self._refresh()
+
+    async def aset_metadata(self, metadata: typing.Dict[str, str]) -> None:
+        """Set metadata for the snapshot."""
+        response = await self._api._client._async_http_client.post(
+            f"/snapshot/{self.id}/metadata",
+            json=metadata,
+        )
+        response.raise_for_status()
+        await self._refresh_async()
+
+    def _refresh(self) -> None:
+        refreshed = self._api.get(self.id)
+        # Use pydantic's parse_obj to ensure fields remain typed
+        updated = type(self).model_validate(refreshed.model_dump())
+
+        # Now 'updated' is a fully validated model. Update self with these fields:
+        for key, value in updated.__dict__.items():
+            setattr(self, key, value)
+
+    async def _refresh_async(self) -> None:
+        """Refresh the snapshot data."""
+        refreshed = await self._api.aget(self.id)
+        updated = type(self).model_validate(refreshed.model_dump())
+        for key, value in updated.__dict__.items():
+            setattr(self, key, value)
+
 
 class InstanceStatus(enum.StrEnum):
     PENDING = "pending"
@@ -297,6 +362,7 @@ class InstanceStatus(enum.StrEnum):
 class InstanceHttpService(BaseModel):
     name: str
     port: int
+    url: str
 
 
 class InstanceNetworking(BaseModel):
@@ -316,17 +382,21 @@ class InstanceExecResponse(BaseModel):
 
 
 class InstanceAPI(BaseAPI):
-    def list(self) -> typing.List[Instance]:
+    def list(self, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Instance]:
         """List all instances available to the user."""
-        response = self._client._http_client.get("/instance")
+        response = self._client._http_client.get("/instance", params={
+            f"metadata[{k}]": v for k, v in (metadata or {}).items()
+        })
         return [
             Instance.model_validate(instance)._set_api(self)
             for instance in response.json()["data"]
         ]
 
-    async def alist(self) -> typing.List[Instance]:
+    async def alist(self, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Instance]:
         """List all instances available to the user."""
-        response = await self._client._async_http_client.get("/instance")
+        response = await self._client._async_http_client.get("/instance", params={
+            f"metadata[{k}]": v for k, v in (metadata or {}).items()
+        })
         return [
             Instance.model_validate(instance)._set_api(self)
             for instance in response.json()["data"]
@@ -380,6 +450,10 @@ class Instance(BaseModel):
     spec: ResourceSpec
     refs: InstanceRefs
     networking: InstanceNetworking
+    metadata: typing.Dict[str, str] = Field(
+        default_factory=dict,
+        description="User provided metadata for the instance",
+    )
 
     def _set_api(self, api: InstanceAPI) -> Instance:
         self._api = api
@@ -519,16 +593,38 @@ class Instance(BaseModel):
             if self.status == InstanceStatus.ERROR:
                 raise RuntimeError("Instance encountered an error")
 
+    def set_metadata(self, metadata: typing.Dict[str, str]) -> None:
+        """Set metadata for the instance."""
+        response = self._api._client._http_client.post(
+            f"/instance/{self.id}/metadata",
+            json=metadata,
+        )
+        response.raise_for_status()
+        self._refresh()
+
+    async def aset_metadata(self, metadata: typing.Dict[str, str]) -> None:
+        """Set metadata for the instance."""
+        response = await self._api._client._async_http_client.post(
+            f"/instance/{self.id}/metadata",
+            json=metadata,
+        )
+        response.raise_for_status()
+        await self._refresh_async()
+
     def _refresh(self) -> None:
-        """Refresh the instance data."""
-        instance = self._api.get(self.id)
-        for key, value in instance.model_dump().items():
+        refreshed = self._api.get(self.id)
+        # Use pydantic's parse_obj to ensure fields remain typed
+        updated = type(self).model_validate(refreshed.model_dump())
+
+        # Now 'updated' is a fully validated model. Update self with these fields:
+        for key, value in updated.__dict__.items():
             setattr(self, key, value)
 
     async def _refresh_async(self) -> None:
         """Refresh the instance data."""
-        instance = await self._api.aget(self.id)
-        for key, value in instance.model_dump().items():
+        refreshed = await self._api.aget(self.id)
+        updated = type(self).model_validate(refreshed.model_dump())
+        for key, value in updated.__dict__.items():
             setattr(self, key, value)
 
     def ssh_connect(self):
@@ -546,7 +642,15 @@ class Instance(BaseModel):
 
         username = self.id + ":" + self._api._client.api_key
 
-        client.connect(hostname, port=port, username=username, password="")
+        client.connect(
+            hostname,
+            port=port,
+            username=username,
+            pkey=_dummy_key(),
+            look_for_keys=False,
+            allow_agent=False
+        )
+
         return client
 
     def ssh(self):
