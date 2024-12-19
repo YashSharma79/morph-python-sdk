@@ -103,11 +103,17 @@ def snapshot():
 
 @snapshot.command("list")
 @click.option(
+    "--metadata", "-m", help="Filter snapshots by metadata (format: key=value)", multiple=True)
+@click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
-def list_snapshots(json_mode):
+def list_snapshots(metadata, json_mode):
     """List all snapshots"""
-    snapshots = client.snapshots.list()
+    metadata_dict = {}
+    for meta in metadata:
+        key, value = meta.split("=", 1)
+        metadata_dict[key] = value
+    snapshots = client.snapshots.list(metadata=metadata_dict)
     if json_mode:
         for snapshot in snapshots:
             click.echo(format_json(snapshot))
@@ -170,6 +176,34 @@ def delete_snapshot(snapshot_id):
     click.echo(f"Deleted snapshot {snapshot_id}")
 
 
+@snapshot.command("get")
+@click.argument("snapshot_id")
+def get_snapshot(snapshot_id):
+    """Get snapshot details"""
+    snapshot = client.snapshots.get(snapshot_id)
+    click.echo(format_json(snapshot))
+
+
+@snapshot.command("set-metadata")
+@click.argument("snapshot_id")
+@click.argument("metadata", nargs=-1)
+def set_snapshot_metadata(snapshot_id, metadata):
+    """Set metadata on a snapshot
+
+    Example:
+
+        morph snapshot set-metadata <id> key1=value "key2=with spaces"
+    """
+    snapshot = client.snapshots.get(snapshot_id)
+    metadata_dict = {}
+    for meta in metadata:
+        key, value = meta.split("=", 1)
+        metadata_dict[key] = value
+    snapshot.set_metadata(metadata_dict)
+    snapshot._refresh()
+    click.echo(format_json(snapshot))
+
+
 # Instances
 @cli.group()
 def instance():
@@ -179,11 +213,17 @@ def instance():
 
 @instance.command("list")
 @click.option(
+    "--metadata", "-m", help="Filter instances by metadata (format: key=value)", multiple=True)
+@click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
-def list_instances(json_mode):
+def list_instances(metadata, json_mode):
     """List all instances"""
-    instances = client.instances.list()
+    metadata_dict = {}
+    for meta in metadata:
+        key, value = meta.split("=", 1)
+        metadata_dict[key] = value
+    instances = client.instances.list(metadata=metadata_dict)
     if json_mode:
         for instance in instances:
             click.echo(format_json(instance))
@@ -309,6 +349,26 @@ def exec_command(instance_id, command):
     if result.stderr:
         click.echo(f"Stderr:\n{result.stderr}", err=True)
     sys.exit(result.exit_code)
+
+
+@instance.command("set-metadata")
+@click.argument("instance_id")
+@click.argument("metadata", nargs=-1)
+def set_instance_metadata(instance_id, metadata):
+    """Set metadata on an instance
+
+    Example:
+
+        morph instance set-metadata <id> key1=value "key2=with spaces"
+    """
+    instance = client.instances.get(instance_id)
+    metadata_dict = {}
+    for meta in metadata:
+        key, value = meta.split("=", 1)
+        metadata_dict[key] = value
+    instance.set_metadata(metadata_dict)
+    instance._refresh()
+    click.echo(format_json(instance))
 
 
 @instance.command("ssh")
