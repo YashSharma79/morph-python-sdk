@@ -229,17 +229,22 @@ class SnapshotAPI(BaseAPI):
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
         """Create a new snapshot from a base image and a machine configuration."""
+        body = {}
+        if image_id is not None:
+            body["image_id"] = image_id
+        if vcpus is not None:
+            body["vcpus"] = vcpus
+        if memory is not None:
+            body["memory"] = memory
+        if disk_size is not None:
+            body["disk_size"] = disk_size
+        if digest is not None:
+            body["digest"] = digest
+        if metadata is not None:
+            body["metadata"] = metadata
         response = self._client._http_client.post(
             "/snapshot",
-            json={
-                "image_id": image_id,
-                "vcpus": vcpus,
-                "memory": memory,
-                "disk_size": disk_size,
-                "digest": digest,
-                "readiness_check": {"type": "timeout", "timeout": 10.0},
-                "metadata": metadata or {},
-            },
+            json=body,
         )
         return Snapshot.model_validate(response.json())._set_api(self)
 
@@ -253,17 +258,22 @@ class SnapshotAPI(BaseAPI):
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
         """Create a new snapshot from a base image and a machine configuration."""
+        body = {}
+        if image_id is not None:
+            body["image_id"] = image_id
+        if vcpus is not None:
+            body["vcpus"] = vcpus
+        if memory is not None:
+            body["memory"] = memory
+        if disk_size is not None:
+            body["disk_size"] = disk_size
+        if digest is not None:
+            body["digest"] = digest
+        if metadata is not None:
+            body["metadata"] = metadata
         response = await self._client._async_http_client.post(
             "/snapshot",
-            json={
-                "image_id": image_id,
-                "vcpus": vcpus,
-                "memory": memory,
-                "disk_size": disk_size,
-                "digest": digest,
-                "readiness_check": {"type": "timeout", "timeout": 10.0},
-                "metadata": metadata or {},
-            },
+            json=body,
         )
         return Snapshot.model_validate(response.json())._set_api(self)
 
@@ -467,17 +477,23 @@ class Instance(BaseModel):
         """Stop the instance."""
         await self._api.astop(self.id)
 
-    def snapshot(self) -> Snapshot:
+    def snapshot(self, digest: typing.Optional[str] = None) -> Snapshot:
         """Save the instance as a snapshot."""
-        response = self._api._client._http_client.post(f"/instance/{self.id}/snapshot")
+        params = {}
+        if digest is not None:
+            params["digest"] = digest
+        response = self._api._client._http_client.post(f"/instance/{self.id}/snapshot", params=params)
         return Snapshot.model_validate(response.json())._set_api(
             self._api._client.snapshots
         )
 
-    async def asnapshot(self) -> Snapshot:
+    async def asnapshot(self, digest: typing.Optional[str] = None) -> Snapshot:
         """Save the instance as a snapshot."""
+        params = {}
+        if digest is not None:
+            params = {"digest": digest}
         response = await self._api._client._async_http_client.post(
-            f"/instance/{self.id}/snapshot"
+            f"/instance/{self.id}/snapshot", params=params
         )
         return Snapshot.model_validate(response.json())._set_api(
             self._api._client.snapshots
