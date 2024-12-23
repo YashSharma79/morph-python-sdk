@@ -140,25 +140,6 @@ morph instance expose-http <instance-id> <name> <port>
 morph instance hide-http <instance-id> <name>
 ```
 
-### Container Deployment
-
-Deploy and run OCI containers:
-
-```bash
-morph instance crun [options] [command]
-
-Options:
-  --image TEXT          Container image (default: python:3.11-slim)
-  --expose-http TEXT    HTTP service to expose (format: name:port)
-  --vcpus INTEGER      Number of VCPUs (default: 1)
-  --memory INTEGER     Memory in MB (default: 128)
-  --disk-size INTEGER  Disk size in MB (default: 700)
-  --force-rebuild      Force rebuild the container
-  --instance-id TEXT   Use existing instance instead of creating new
-  --verbose           Enable verbose logging (default: True)
-  --json              Output in JSON format
-```
-
 ### Interactive Chat
 
 Start an interactive chat session with an instance:
