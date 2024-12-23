@@ -332,6 +332,26 @@ class SSHClient:
     def __init__(self, client: paramiko.SSHClient):
         self._client = client
 
+    @typing.overload
+    def run(
+        self,
+        command: typing.Union[str, list],
+        background: typing.Literal[True],
+        get_pty: bool = True,
+        timeout: typing.Optional[float] = None,
+    ) -> BackgroundProcess:
+        ...
+
+    @typing.overload
+    def run(
+        self,
+        command: typing.Union[str, list],
+        background: typing.Literal[False] = False,
+        get_pty: bool = True,
+        timeout: typing.Optional[float] = None,
+    ) -> CommandResult:
+        ...
+
     def run(
         self,
         command: typing.Union[str, list],
