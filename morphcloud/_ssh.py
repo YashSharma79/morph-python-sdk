@@ -24,8 +24,12 @@ logger = logging.getLogger(__name__)
 
 def _interactive_shell(
     client: paramiko.SSHClient, command: typing.Optional[str] = None
-):
-    """Create an interactive shell session or run a command interactively"""
+) -> int:
+    """Create an interactive shell session or run a command interactively
+
+    Returns:
+        int: The exit code of the command or shell session
+    """
 
     def get_terminal_size():
         """Get the size of the terminal window."""
@@ -84,6 +88,13 @@ def _interactive_shell(
                 if len(x) == 0:
                     break
                 channel.send(x)
+
+        # Wait for the channel to close and get exit status
+        while not channel.exit_status_ready() and not channel.closed:
+            time.sleep(0.1)
+
+        exit_code = channel.recv_exit_status() if not channel.closed else -1
+        return exit_code
 
     finally:
         # Restore the original terminal settings
