@@ -22,7 +22,6 @@ import paramiko
 logger = logging.getLogger(__name__)
 
 
-       termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
 def _interactive_shell(
     client: paramiko.SSHClient, command: typing.Optional[str] = None
 ) -> typing.Optional[str]:
