@@ -24,17 +24,9 @@ logger = logging.getLogger(__name__)
 
 def _interactive_shell(
     client: paramiko.SSHClient, command: typing.Optional[str] = None
-) -> typing.Optional[str]:
-    """Create an interactive shell session or run a command interactively.
+):
+    """Create an interactive shell session or run a command interactively"""
 
-    Args:
-        client: The SSH client to use
-        command: Optional command to run. If not provided, launches an interactive shell.
-
-    Returns:
-        str: Command output if in non-interactive mode
-        None: If in interactive mode
-    """
     def get_terminal_size():
         """Get the size of the terminal window."""
         try:
@@ -44,112 +36,59 @@ def _interactive_shell(
         except:
             return (24, 80)
 
-    # Check if we're running in an interactive terminal
-    is_interactive = sys.stdin.isatty()
+    # Check if we're running in an interactive shell
+    if not sys.stdin.isatty():
+        raise SSHError("Interactive shell requires a TTY")
 
-    # Create the channel through SSHClient's underlying paramiko client
-    channel = client.get_transport().open_session()
+    # Get the original terminal settings
+    oldtty = termios.tcgetattr(sys.stdin)
 
     try:
-        if is_interactive:
-            # Only attempt terminal configuration in interactive mode
-            try:
-                # Get the original terminal settings
-                oldtty = termios.tcgetattr(sys.stdin)
-                # Set the terminal to raw mode
-                tty.setraw(sys.stdin.fileno())
+        # Set the terminal to raw mode
+        tty.setraw(sys.stdin.fileno())
 
-                # Get terminal dimensions and type
-                rows, cols = get_terminal_size()
-                term = os.getenv("TERM", "xterm")
+        # Get terminal dimensions and type
+        rows, cols = get_terminal_size()
+        term = os.getenv("TERM", "xterm")
 
-                channel.get_pty(term=term, width=cols, height=rows)
+        # Create the channel through SSHClient's underlying paramiko client
+        channel = client.get_transport().open_session()
+        channel.get_pty(term=term, width=cols, height=rows)
 
-                def sigwinch_handler(signum, frame):
-                    """Handle terminal window resize events."""
-                    rows, cols = get_terminal_size()
-                    channel.resize_pty(width=cols, height=rows)
-
-                # Set up signal handler for window resize
-                signal.signal(signal.SIGWINCH, sigwinch_handler)
-
-            except (termios.error, IOError) as e:
-                logger.debug(f"Failed to configure terminal: {e}")
-                # Fall back to basic PTY
-                channel.get_pty(term="dumb", width=80, height=24)
-        else:
-            # Non-interactive mode - use basic PTY
-            channel.get_pty(term="dumb", width=80, height=24)
-
-        # Execute command or start shell
         if command:
             channel.exec_command(command)
         else:
             channel.invoke_shell()
 
-        # Handle non-interactive mode
-        if not is_interactive:
-            output = []
-            while True:
-                if channel.exit_status_ready() and not channel.recv_ready():
-                    break
-                try:
-                    if channel.recv_ready():
-                        chunk = channel.recv(1024)
-                        if not chunk:
-                            break
-                        output.append(chunk)
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    logger.error(f"Error reading from channel: {e}")
-                    break
+        def sigwinch_handler(signum, frame):
+            """Handle terminal window resize events."""
+            rows, cols = get_terminal_size()
+            channel.resize_pty(width=cols, height=rows)
 
-            return b"".join(output).decode("utf-8", errors="replace")
-
-        # Interactive mode - handle input/output streaming
+        # Set up signal handler for window resize
+        signal.signal(signal.SIGWINCH, sigwinch_handler)
         channel.settimeout(0.0)
-        try:
-            while True:
-                r, w, e = select.select([channel, sys.stdin], [], [])
-                if channel in r:
-                    try:
-                        data = channel.recv(1024)
-                        if len(data) == 0:
-                            break
-                        os.write(sys.stdout.fileno(), data)
-                    except Exception as e:
-                        logger.debug(f"Error receiving data: {e}")
-                        break
-                if sys.stdin in r:
-                    try:
-                        data = os.read(sys.stdin.fileno(), 1024)
-                        if len(data) == 0:
-                            break
-                        channel.send(data)
-                    except Exception as e:
-                        logger.debug(f"Error sending data: {e}")
-                        break
 
-        except Exception as e:
-            logger.error(f"Error in interactive session: {e}")
-            raise
-
-        return None
+        while True:
+            r, w, e = select.select([channel, sys.stdin], [], [])
+            if channel in r:
+                try:
+                    x = channel.recv(1024)
+                    if len(x) == 0:
+                        break
+                    os.write(sys.stdout.fileno(), x)
+                except Exception:
+                    break
+            if sys.stdin in r:
+                x = os.read(sys.stdin.fileno(), 1024)
+                if len(x) == 0:
+                    break
+                channel.send(x)
 
     finally:
-        # Clean up
-        try:
-            channel.close()
-        except:
-            pass
+        # Restore the original terminal settings
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
 
-        # Restore terminal settings if we modified them
-        if is_interactive and 'oldtty' in locals():
-            try:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
-            except:
-                pass
 
 
 class SSHError(Exception):

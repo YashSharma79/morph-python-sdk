@@ -376,9 +376,21 @@ def set_instance_metadata(instance_id, metadata):
 def ssh_portal(instance_id, command):
     """Start an SSH session to an instance"""
     instance = client.instances.get(instance_id)
+    import sys
+    non_interactive = not sys.stdin.isatty()
+
     with instance.ssh() as ssh:
         cmd_str = " ".join(command) if command else None
-        ssh.interactive_shell(command=cmd_str)
+        if non_interactive:
+            assert cmd_str is not None, "Command must be provided in non-interactive mode"
+            result = ssh.run(cmd_str)
+            if result.stdout:
+                click.echo(f"{result.stdout}")
+            if result.stderr:
+                click.echo(f"{result.stderr}", err=True)
+            sys.exit(result.exit_code)
+        else:
+            ssh.interactive_shell(command=cmd_str)
 
 
 @instance.command("port-forward")
