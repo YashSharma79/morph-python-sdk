@@ -390,7 +390,7 @@ def ssh_portal(instance_id, command):
                 click.echo(f"{result.stderr}", err=True)
             sys.exit(result.exit_code)
         else:
-            ssh.interactive_shell(command=cmd_str)
+            sys.exit(ssh.interactive_shell(command=cmd_str))
 
 
 @instance.command("port-forward")
