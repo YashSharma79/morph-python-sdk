@@ -372,25 +372,37 @@ def set_instance_metadata(instance_id, metadata):
 
 @instance.command("ssh")
 @click.argument("instance_id")
+@click.option("--rm", is_flag=True, help="Remove the instance after exiting")
+@click.option("--snapshot", is_flag=True, help="Create a snapshot before exiting")
 @click.argument("command", nargs=-1, required=False, type=click.UNPROCESSED)
-def ssh_portal(instance_id, command):
+def ssh_portal(instance_id, rm, snapshot, command):
     """Start an SSH session to an instance"""
     instance = client.instances.get(instance_id)
     import sys
     non_interactive = not sys.stdin.isatty()
 
-    with instance.ssh() as ssh:
-        cmd_str = " ".join(command) if command else None
-        if non_interactive:
-            assert cmd_str is not None, "Command must be provided in non-interactive mode"
-            result = ssh.run(cmd_str)
-            if result.stdout:
-                click.echo(f"{result.stdout}")
-            if result.stderr:
-                click.echo(f"{result.stderr}", err=True)
-            sys.exit(result.exit_code)
-        else:
-            sys.exit(ssh.interactive_shell(command=cmd_str))
+    instance.wait_until_ready()
+
+    try:
+        with instance.ssh() as ssh:
+            cmd_str = " ".join(command) if command else None
+            if non_interactive:
+                assert cmd_str is not None, "Command must be provided in non-interactive mode"
+                result = ssh.run(cmd_str)
+                if result.stdout:
+                    click.echo(f"{result.stdout}")
+                if result.stderr:
+                    click.echo(f"{result.stderr}", err=True)
+                sys.exit(result.exit_code)
+            else:
+                sys.exit(ssh.interactive_shell(command=cmd_str))
+    finally:
+        if snapshot:
+            snapshot = instance.snapshot()
+            click.echo(f"Created snapshot:")
+            click.echo(f"{snapshot.id}")
+        if rm:
+            instance.stop()
 
 
 @instance.command("port-forward")
