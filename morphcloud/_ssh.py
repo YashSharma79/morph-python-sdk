@@ -130,6 +130,11 @@ class CommandResult:
                 self.command, self.returncode, self.stdout, self.stderr
             )
 
+    @property
+    def exit_code(self):
+        """The exit code of the command"""
+        return self.returncode
+
 
 class BackgroundProcess:
     """Represents a background process running on the remote machine"""
