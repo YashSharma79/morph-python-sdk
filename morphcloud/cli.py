@@ -1,6 +1,5 @@
-import hashlib
-import json
 import sys
+import json
 
 import click
 
@@ -399,6 +398,174 @@ def port_forward(instance_id, remote_port, local_port):
         click.echo(f"Local server listening on localhost:{local_port}")
         click.echo(f"Forwarding to {remote_port}")
         tunnel.wait()
+
+
+@instance.command("copy")
+@click.argument("source")
+@click.argument("destination")
+@click.option("--recursive", "-r", is_flag=True, help="Copy directories recursively")
+def copy_files(source, destination, recursive):
+    """Copy files to or from a Morph instance.
+
+    Supports copying in both directions:
+    - From instance to local: morph instance copy instance_id:/remote/path /local/path
+    - From local to instance: morph instance copy /local/path instance_id:/remote/path
+
+    The destination can be:
+    - A full path including filename
+    - A directory path (ending with '/' or an existing directory)
+    - Just the instance (instance_id:): files will be copied to home directory
+
+    Use -r or --recursive to copy directories recursively.
+
+    Examples:
+        morph instance copy morphvm_1234:/etc/config.json ./config.json
+        morph instance copy ./local/file.txt morphvm_1234:/remote/path/
+        morph instance copy morphvm_1234:.bashrc .
+        morph instance copy README.md morphvm_1234:
+        morph instance copy -r ./local/dir morphvm_1234:/remote/dir/
+    """
+    import os
+    import os.path
+    import stat
+    import pathlib
+
+    def is_remote_dir(sftp, path):
+        """Check if remote path is a directory"""
+        try:
+            return stat.S_ISDIR(sftp.stat(path).st_mode)
+        except IOError:
+            return False
+
+    def copy_recursive_to_remote(sftp, local_path, remote_path):
+        """Recursively copy a local directory to remote"""
+        local_path = pathlib.Path(local_path)
+
+        if not local_path.exists():
+            raise click.UsageError(f"Local path does not exist: {local_path}")
+
+        # If source is a file, just copy it directly
+        if local_path.is_file():
+            try:
+                sftp.put(str(local_path), remote_path)
+            except IOError as e:
+                # Create parent directories if they don't exist
+                parent_dir = os.path.dirname(remote_path)
+                if parent_dir:
+                    try:
+                        sftp.mkdir(parent_dir)
+                    except IOError:
+                        # Directory might already exist or need parent directories
+                        sftp.makedirs(parent_dir)
+                sftp.put(str(local_path), remote_path)
+            return
+
+        # For directories, create the remote directory if it doesn't exist
+        try:
+            sftp.mkdir(remote_path)
+        except IOError:
+            # Directory might already exist, ignore the error
+            pass
+
+        # Recursively copy contents
+        for item in local_path.iterdir():
+            remote_item_path = os.path.join(remote_path, item.name)
+            if item.is_dir():
+                copy_recursive_to_remote(sftp, item, remote_item_path)
+            else:
+                sftp.put(str(item), remote_item_path)
+
+    def copy_recursive_from_remote(sftp, remote_path, local_path):
+        """Recursively copy a remote directory to local"""
+        # Convert local path to Path object for easier manipulation
+        local_path = pathlib.Path(local_path)
+
+        try:
+            # Try to get remote path attributes
+            remote_attr = sftp.stat(remote_path)
+        except IOError as e:
+            raise click.UsageError(f"Remote path does not exist: {remote_path}")
+
+        # If source is a file, just copy it directly
+        if stat.S_ISREG(remote_attr.st_mode):
+            # Create parent directories if they don't exist
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            sftp.get(remote_path, str(local_path))
+            return
+
+        # For directories, create the local directory if it doesn't exist
+        local_path.mkdir(parents=True, exist_ok=True)
+
+        # Recursively copy contents
+        for item in sftp.listdir_attr(remote_path):
+            remote_item_path = os.path.join(remote_path, item.filename)
+            local_item_path = local_path / item.filename
+
+            if stat.S_ISDIR(item.st_mode):
+                copy_recursive_from_remote(sftp, remote_item_path, local_item_path)
+            else:
+                sftp.get(remote_item_path, str(local_item_path))
+
+    # Parse instance ID and path from source/destination
+    def parse_instance_path(path):
+        if ":" not in path:
+            return None, path
+        instance_id, remote_path = path.split(":", 1)
+        return instance_id, remote_path
+
+    source_instance, source_path = parse_instance_path(source)
+    dest_instance, dest_path = parse_instance_path(destination)
+
+    # Validate that exactly one side is a remote path
+    if (source_instance and dest_instance) or (not source_instance and not dest_instance):
+        raise click.UsageError("One (and only one) path must be a remote path in the format instance_id:/path")
+
+    # Get the instance
+    instance_id = source_instance or dest_instance
+    assert instance_id is not None
+    instance = client.instances.get(instance_id)
+
+    with instance.ssh() as ssh:
+        sftp = ssh._client.open_sftp()
+        try:
+            if source_instance:
+                # Downloading from instance
+                click.echo(f"Downloading from {instance_id}:{source_path} to {dest_path}")
+                if recursive:
+                    copy_recursive_from_remote(sftp, source_path, dest_path)
+                else:
+                    dest_path = pathlib.Path(dest_path)
+                    if dest_path.is_dir():
+                        dest_path = dest_path / os.path.basename(source_path)
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    sftp.get(source_path, str(dest_path))
+            else:
+                # Uploading to instance
+                # Handle destination path
+                if not dest_path:
+                    # Empty destination, use source filename
+                    dest_path = os.path.basename(source_path)
+                elif dest_path.endswith('/') or is_remote_dir(sftp, dest_path):
+                    # Destination is a directory (either by '/' or by checking)
+                    dest_path = os.path.join(dest_path.rstrip('/'), os.path.basename(source_path))
+
+                click.echo(f"Uploading from {source_path} to {instance_id}:{dest_path}")
+                if recursive:
+                    copy_recursive_to_remote(sftp, source_path, dest_path)
+                else:
+                    try:
+                        sftp.put(source_path, dest_path)
+                    except IOError:
+                        # Try creating parent directory if it doesn't exist
+                        parent_dir = os.path.dirname(dest_path)
+                        if parent_dir:
+                            try:
+                                sftp.mkdir(parent_dir)
+                            except IOError:
+                                sftp.makedirs(parent_dir)
+                        sftp.put(source_path, dest_path)
+        finally:
+            sftp.close()
 
 
 @instance.command("chat")
