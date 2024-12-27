@@ -102,7 +102,11 @@ def snapshot():
 
 @snapshot.command("list")
 @click.option(
-    "--metadata", "-m", help="Filter snapshots by metadata (format: key=value)", multiple=True)
+    "--metadata",
+    "-m",
+    help="Filter snapshots by metadata (format: key=value)",
+    multiple=True,
+)
 @click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
@@ -210,9 +214,93 @@ def instance():
     pass
 
 
+@instance.command("sync")
+@click.argument("source")
+@click.argument("destination")
+@click.option(
+    "--delete", "-d", is_flag=True, help="Delete extraneous files from destination"
+)
+@click.option(
+    "--dry-run",
+    "-n",
+    is_flag=True,
+    help="Show what would be done without making changes",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    count=True,
+    help="Increase verbosity (can be used multiple times)",
+)
+def sync_files(source, destination, delete, dry_run, verbose):
+    """Synchronize files to or from a Morph instance.
+
+    Similar to rsync, this command synchronizes files between local and remote directories.
+    Only changed files are transferred. Supports both directions:
+
+    - From local to instance: morph instance sync ./local/dir instance_id:/remote/dir
+    - From instance to local: morph instance sync instance_id:/remote/dir ./local/dir
+
+    Verbosity levels:
+        -v: Show INFO messages (basic progress)
+        -vv: Show DEBUG messages (detailed file operations)
+        -vvv: Show all debug information including SFTP operations
+
+    Examples:
+        morph instance sync ./local/dir morphvm_1234:/remote/dir
+        morph instance sync morphvm_1234:/remote/dir ./local/dir
+        morph instance sync --delete ./local/dir morphvm_1234:/remote/dir
+        morph instance sync --dry-run ./local/dir morphvm_1234:/remote/dir
+        morph instance sync -vv ./local/dir morphvm_1234:/remote/dir
+    """
+    import logging
+
+    # Set up logging based on verbosity
+    logger = logging.getLogger("morph.sync")
+    if verbose == 0:
+        logger.setLevel(logging.WARNING)
+    elif verbose == 1:
+        logger.setLevel(logging.INFO)
+    elif verbose >= 2:
+        logger.setLevel(logging.DEBUG)
+        if verbose >= 3:
+            logging.getLogger("paramiko").setLevel(logging.DEBUG)
+
+    def parse_instance_path(path):
+        if ":" not in path:
+            return None, path
+        instance_id, remote_path = path.split(":", 1)
+        return instance_id, remote_path
+
+    source_instance, source_path = parse_instance_path(source)
+    dest_instance, dest_path = parse_instance_path(destination)
+
+    # Validate that exactly one side is a remote path
+    if (source_instance and dest_instance) or (
+        not source_instance and not dest_instance
+    ):
+        raise click.UsageError(
+            "One (and only one) path must be a remote path in the format instance_id:/path"
+        )
+
+    # Get the instance
+    instance_id = source_instance or dest_instance
+    assert instance_id is not None
+    instance = client.instances.get(instance_id)
+
+    try:
+        instance.sync(source, destination, delete=delete, dry_run=dry_run)
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
 @instance.command("list")
 @click.option(
-    "--metadata", "-m", help="Filter instances by metadata (format: key=value)", multiple=True)
+    "--metadata",
+    "-m",
+    help="Filter instances by metadata (format: key=value)",
+    multiple=True,
+)
 @click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
@@ -379,6 +467,7 @@ def ssh_portal(instance_id, rm, snapshot, command):
     """Start an SSH session to an instance"""
     instance = client.instances.get(instance_id)
     import sys
+
     non_interactive = not sys.stdin.isatty()
 
     instance.wait_until_ready()
@@ -387,7 +476,9 @@ def ssh_portal(instance_id, rm, snapshot, command):
         with instance.ssh() as ssh:
             cmd_str = " ".join(command) if command else None
             if non_interactive:
-                assert cmd_str is not None, "Command must be provided in non-interactive mode"
+                assert (
+                    cmd_str is not None
+                ), "Command must be provided in non-interactive mode"
                 result = ssh.run(cmd_str)
                 if result.stdout:
                     click.echo(f"{result.stdout}")
@@ -541,8 +632,12 @@ def copy_files(source, destination, recursive):
     dest_instance, dest_path = parse_instance_path(destination)
 
     # Validate that exactly one side is a remote path
-    if (source_instance and dest_instance) or (not source_instance and not dest_instance):
-        raise click.UsageError("One (and only one) path must be a remote path in the format instance_id:/path")
+    if (source_instance and dest_instance) or (
+        not source_instance and not dest_instance
+    ):
+        raise click.UsageError(
+            "One (and only one) path must be a remote path in the format instance_id:/path"
+        )
 
     # Get the instance
     instance_id = source_instance or dest_instance
@@ -554,7 +649,9 @@ def copy_files(source, destination, recursive):
         try:
             if source_instance:
                 # Downloading from instance
-                click.echo(f"Downloading from {instance_id}:{source_path} to {dest_path}")
+                click.echo(
+                    f"Downloading from {instance_id}:{source_path} to {dest_path}"
+                )
                 if recursive:
                     copy_recursive_from_remote(sftp, source_path, dest_path)
                 else:
@@ -569,9 +666,11 @@ def copy_files(source, destination, recursive):
                 if not dest_path:
                     # Empty destination, use source filename
                     dest_path = os.path.basename(source_path)
-                elif dest_path.endswith('/') or is_remote_dir(sftp, dest_path):
+                elif dest_path.endswith("/") or is_remote_dir(sftp, dest_path):
                     # Destination is a directory (either by '/' or by checking)
-                    dest_path = os.path.join(dest_path.rstrip('/'), os.path.basename(source_path))
+                    dest_path = os.path.join(
+                        dest_path.rstrip("/"), os.path.basename(source_path)
+                    )
 
                 click.echo(f"Uploading from {source_path} to {instance_id}:{dest_path}")
                 if recursive:
@@ -608,4 +707,3 @@ def chat(instance_id, instructions):
 
 if __name__ == "__main__":
     cli()
-

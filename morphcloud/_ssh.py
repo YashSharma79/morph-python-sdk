@@ -101,7 +101,6 @@ def _interactive_shell(
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
 
 
-
 class SSHError(Exception):
     """Base exception for SSH-related errors"""
 
@@ -350,8 +349,7 @@ class SSHClient:
         background: typing.Literal[True],
         get_pty: bool = True,
         timeout: typing.Optional[float] = None,
-    ) -> BackgroundProcess:
-        ...
+    ) -> BackgroundProcess: ...
 
     @typing.overload
     def run(
@@ -360,8 +358,7 @@ class SSHClient:
         background: typing.Literal[False] = False,
         get_pty: bool = True,
         timeout: typing.Optional[float] = None,
-    ) -> CommandResult:
-        ...
+    ) -> CommandResult: ...
 
     def run(
         self,

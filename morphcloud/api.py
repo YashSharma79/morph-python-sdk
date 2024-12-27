@@ -191,7 +191,11 @@ class SnapshotRefs(BaseModel):
 
 
 class SnapshotAPI(BaseAPI):
-    def list(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Snapshot]:
+    def list(
+        self,
+        digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> typing.List[Snapshot]:
         """List all snapshots available to the user."""
         params = {}
         if digest is not None:
@@ -205,7 +209,11 @@ class SnapshotAPI(BaseAPI):
             for snapshot in response.json()["data"]
         ]
 
-    async def alist(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Snapshot]:
+    async def alist(
+        self,
+        digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> typing.List[Snapshot]:
         """List all snapshots available to the user."""
         params = {}
         if digest is not None:
@@ -392,21 +400,27 @@ class InstanceExecResponse(BaseModel):
 
 
 class InstanceAPI(BaseAPI):
-    def list(self, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Instance]:
+    def list(
+        self, metadata: typing.Optional[typing.Dict[str, str]] = None
+    ) -> typing.List[Instance]:
         """List all instances available to the user."""
-        response = self._client._http_client.get("/instance", params={
-            f"metadata[{k}]": v for k, v in (metadata or {}).items()
-        })
+        response = self._client._http_client.get(
+            "/instance",
+            params={f"metadata[{k}]": v for k, v in (metadata or {}).items()},
+        )
         return [
             Instance.model_validate(instance)._set_api(self)
             for instance in response.json()["data"]
         ]
 
-    async def alist(self, metadata: typing.Optional[typing.Dict[str, str]] = None) -> typing.List[Instance]:
+    async def alist(
+        self, metadata: typing.Optional[typing.Dict[str, str]] = None
+    ) -> typing.List[Instance]:
         """List all instances available to the user."""
-        response = await self._client._async_http_client.get("/instance", params={
-            f"metadata[{k}]": v for k, v in (metadata or {}).items()
-        })
+        response = await self._client._async_http_client.get(
+            "/instance",
+            params={f"metadata[{k}]": v for k, v in (metadata or {}).items()},
+        )
         return [
             Instance.model_validate(instance)._set_api(self)
             for instance in response.json()["data"]
@@ -482,7 +496,9 @@ class Instance(BaseModel):
         params = {}
         if digest is not None:
             params["digest"] = digest
-        response = self._api._client._http_client.post(f"/instance/{self.id}/snapshot", params=params)
+        response = self._api._client._http_client.post(
+            f"/instance/{self.id}/snapshot", params=params
+        )
         return Snapshot.model_validate(response.json())._set_api(
             self._api._client.snapshots
         )
@@ -664,7 +680,7 @@ class Instance(BaseModel):
             username=username,
             pkey=_dummy_key(),
             look_for_keys=False,
-            allow_agent=False
+            allow_agent=False,
         )
 
         return client
@@ -677,3 +693,421 @@ class Instance(BaseModel):
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
+
+    def sync(
+        self,
+        source_path: str,
+        dest_path: str,
+        delete: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Synchronize a local directory to a remote directory (or vice versa)."""
+        import os
+        import stat
+        import pathlib
+        import logging
+        from typing import Set, Dict, Tuple
+        from tqdm import tqdm
+
+        # Set up logging
+        logger = logging.getLogger("morph.sync")
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+
+        logger.info(f"Starting sync operation from {source_path} to {dest_path}")
+        logger.debug(f"Parameters: delete={delete}, dry_run={dry_run}")
+
+        def parse_instance_path(path: str) -> Tuple[str, str]:
+            if ":" not in path:
+                return None, path
+            instance_id, remote_path = path.split(":", 1)
+            logger.debug(
+                f"Parsed path {path} -> instance_id={instance_id}, path={remote_path}"
+            )
+            return instance_id, remote_path
+
+        def get_file_info(sftp, path: str) -> Dict[str, Tuple[int, int]]:
+            """Get recursive file listing with size and mtime."""
+            logger.debug(f"Scanning remote directory: {path}")
+            info = {}
+
+            try:
+                for entry in sftp.listdir_attr(path):
+                    full_path = os.path.join(path, entry.filename)
+                    if stat.S_ISDIR(entry.st_mode):
+                        logger.debug(f"Found remote directory: {full_path}")
+                        subdir_info = get_file_info(sftp, full_path)
+                        info.update(subdir_info)
+                    else:
+                        logger.debug(
+                            f"Found remote file: {full_path} (size={entry.st_size}, mtime={entry.st_mtime})"
+                        )
+                        info[full_path] = (entry.st_size, entry.st_mtime)
+            except IOError as e:
+                logger.error(f"Error scanning remote directory {path}: {e}")
+                raise
+
+            return info
+
+        def get_local_info(path: str) -> Dict[str, Tuple[int, int]]:
+            """Get recursive file listing for local directory."""
+            logger.debug(f"Scanning local directory: {path}")
+            info = {}
+            path = pathlib.Path(path)
+
+            if not path.exists():
+                logger.warning(f"Local path does not exist: {path}")
+                return info
+
+            for item in path.rglob("*"):
+                if item.is_file():
+                    stat_info = item.stat()
+                    logger.debug(
+                        f"Found local file: {item} (size={stat_info.st_size}, mtime={stat_info.st_mtime})"
+                    )
+                    info[str(item)] = (stat_info.st_size, stat_info.st_mtime)
+
+            return info
+
+        def format_size(size: int) -> str:
+            """Format size in bytes to human readable string."""
+            for unit in ["B", "KB", "MB", "GB"]:
+                if size < 1024:
+                    return f"{size:.1f}{unit}"
+                size /= 1024
+            return f"{size:.1f}TB"
+
+        def sftp_makedirs(sftp, remote_dir):
+            """Recursively create remote directory and its parents."""
+            if remote_dir == "/":
+                return
+
+            logger.debug(f"Attempting to create directory: {remote_dir}")
+            try:
+                sftp.stat(remote_dir)
+            except IOError:
+                parent = os.path.dirname(remote_dir)
+                if parent and parent != "/":
+                    sftp_makedirs(sftp, parent)
+                try:
+                    sftp.mkdir(remote_dir)
+                    logger.debug(f"Created directory: {remote_dir}")
+                except IOError as e:
+                    if "Failure" not in str(e):  # Ignore if directory already exists
+                        raise
+
+        def sync_to_remote(
+            sftp, local_path: str, remote_path: str, delete: bool = False
+        ):
+            """Sync local directory to remote."""
+            logger.info("Starting local to remote sync")
+
+            # Create remote directory if it doesn't exist
+            try:
+                logger.debug(f"Checking if remote directory exists: {remote_path}")
+                sftp.stat(remote_path)
+            except IOError:
+                logger.info(f"Creating remote directory tree: {remote_path}")
+                sftp_makedirs(sftp, remote_path)
+
+            logger.info(f"Scanning directories...")
+
+            # Get file listings
+            try:
+                local_info = get_local_info(local_path)
+                logger.info(f"Found {len(local_info)} local files")
+                remote_info = get_file_info(sftp, remote_path)
+                logger.info(f"Found {len(remote_info)} remote files")
+            except Exception as e:
+                logger.error(f"Error during directory scanning: {e}")
+                raise
+
+            # Normalize paths
+            local_base = pathlib.Path(local_path)
+            remote_base = remote_path
+
+            # Track what we've synced
+            synced_files = set()
+
+            # Calculate total size to transfer
+            total_size = sum(size for size, _ in local_info.values())
+            logger.info(f"Total local size: {format_size(total_size)}")
+
+            # Prepare list of actions
+            actions = []
+            for local_file, (local_size, local_mtime) in local_info.items():
+                rel_path = str(pathlib.Path(local_file).relative_to(local_base))
+                remote_file = os.path.join(remote_base, rel_path)
+
+                should_copy = True
+                if remote_file in remote_info:
+                    remote_size, remote_mtime = remote_info[remote_file]
+                    if (
+                        local_size == remote_size
+                        and abs(local_mtime - remote_mtime) < 1
+                    ):
+                        should_copy = False
+                        logger.debug(f"Skipping unchanged file: {rel_path}")
+                    else:
+                        logger.debug(
+                            f"File needs update: {rel_path} (size: {local_size} vs {remote_size}, mtime: {local_mtime} vs {remote_mtime})"
+                        )
+
+                if should_copy:
+                    actions.append(("copy", local_file, remote_file, local_size))
+                synced_files.add(remote_file)
+
+            # Add deletions if requested
+            if delete:
+                for remote_file in remote_info:
+                    if remote_file not in synced_files:
+                        logger.debug(f"Marking for deletion: {remote_file}")
+                        actions.append(("delete", None, remote_file, 0))
+
+            # Print summary
+            logger.info("\nChanges to be made:")
+            total_copies = sum(1 for action in actions if action[0] == "copy")
+            total_deletes = sum(1 for action in actions if action[0] == "delete")
+            total_size_to_copy = sum(
+                size for action, _, _, size in actions if action == "copy"
+            )
+            logger.info(
+                f"  Copy: {total_copies} files ({format_size(total_size_to_copy)})"
+            )
+            if delete:
+                logger.info(f"  Delete: {total_deletes} files")
+
+            if not actions:
+                logger.info("  No changes needed")
+                return
+
+            if dry_run:
+                logger.info("\nDry run - no changes made")
+                for action, src, dst, size in actions:
+                    if action == "copy":
+                        rel_path = str(pathlib.Path(dst).relative_to(remote_base))
+                        logger.info(f"  Would copy: {rel_path} ({format_size(size)})")
+                    else:
+                        rel_path = str(pathlib.Path(dst).relative_to(remote_base))
+                        logger.info(f"  Would delete: {rel_path}")
+                return
+
+            # Execute actions with progress bar
+            with tqdm(total=total_size_to_copy, unit="B", unit_scale=True) as pbar:
+                for action, src, dst, size in actions:
+                    try:
+                        if action == "copy":
+                            # Create parent directories if needed
+                            remote_dir = os.path.dirname(dst)
+                            logger.debug(
+                                f"Creating remote directory tree: {remote_dir}"
+                            )
+                            sftp_makedirs(sftp, remote_dir)
+
+                            # Copy with progress
+                            rel_path = str(pathlib.Path(dst).relative_to(remote_base))
+                            logger.info(f"Copying {rel_path}")
+                            pbar.set_description(f"Copying {rel_path}")
+                            sftp.put(src, dst)
+                            pbar.update(size)
+
+                            # Update remote mtime to match local
+                            logger.debug(f"Updating mtime for {rel_path}")
+                            sftp.utime(dst, (local_mtime, local_mtime))
+                            logger.info(f"Successfully copied: {rel_path}")
+                        else:
+                            rel_path = str(pathlib.Path(dst).relative_to(remote_base))
+                            logger.info(f"Deleting {rel_path}")
+                            pbar.write(f"Deleting {rel_path}")
+                            try:
+                                sftp.remove(dst)
+                                logger.info(f"Successfully deleted: {rel_path}")
+                            except IOError as e:
+                                logger.warning(f"Failed to delete {rel_path}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing {dst}: {e}")
+                        raise
+
+        def sync_from_remote(
+            sftp, remote_path: str, local_path: str, delete: bool = False
+        ):
+            """Sync remote directory to local."""
+            logger.info("Starting remote to local sync")
+
+            # Create local directory if it doesn't exist
+            local_base = pathlib.Path(local_path)
+            if not local_base.exists():
+                logger.info(f"Creating local directory: {local_path}")
+                local_base.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Scanning directories...")
+
+            # Get file listings
+            try:
+                remote_info = get_file_info(sftp, remote_path)
+                logger.info(f"Found {len(remote_info)} remote files")
+                local_info = get_local_info(local_path)
+                logger.info(f"Found {len(local_info)} local files")
+            except Exception as e:
+                logger.error(f"Error during directory scanning: {e}")
+                raise
+
+            # Normalize paths
+            remote_base = remote_path
+            local_base = pathlib.Path(local_path)
+
+            # Track what we've synced
+            synced_files = set()
+
+            # Calculate total size to transfer
+            total_size = sum(size for size, _ in remote_info.values())
+            logger.info(f"Total remote size: {format_size(total_size)}")
+
+            # Prepare list of actions
+            actions = []
+            for remote_file, (remote_size, remote_mtime) in remote_info.items():
+                rel_path = os.path.relpath(remote_file, remote_base)
+                local_file = str(local_base / rel_path)
+
+                should_copy = True
+                if local_file in local_info:
+                    local_size, local_mtime = local_info[local_file]
+                    if (
+                        remote_size == local_size
+                        and abs(remote_mtime - local_mtime) < 1
+                    ):
+                        should_copy = False
+                        logger.debug(f"Skipping unchanged file: {rel_path}")
+                    else:
+                        logger.debug(
+                            f"File needs update: {rel_path} (size: {remote_size} vs {local_size}, mtime: {remote_mtime} vs {local_mtime})"
+                        )
+
+                if should_copy:
+                    actions.append(("copy", remote_file, local_file, remote_size))
+                synced_files.add(local_file)
+
+            # Add deletions if requested
+            if delete:
+                for local_file in local_info:
+                    if local_file not in synced_files:
+                        logger.debug(f"Marking for deletion: {local_file}")
+                        actions.append(("delete", None, local_file, 0))
+
+            # Print summary
+            logger.info("\nChanges to be made:")
+            total_copies = sum(1 for action in actions if action[0] == "copy")
+            total_deletes = sum(1 for action in actions if action[0] == "delete")
+            total_size_to_copy = sum(
+                size for action, _, _, size in actions if action == "copy"
+            )
+            logger.info(
+                f"  Copy: {total_copies} files ({format_size(total_size_to_copy)})"
+            )
+            if delete:
+                logger.info(f"  Delete: {total_deletes} files")
+
+            if not actions:
+                logger.info("  No changes needed")
+                return
+
+            if dry_run:
+                logger.info("\nDry run - no changes made")
+                for action, src, dst, size in actions:
+                    if action == "copy":
+                        rel_path = str(pathlib.Path(dst).relative_to(local_base))
+                        logger.info(f"  Would copy: {rel_path} ({format_size(size)})")
+                    else:
+                        rel_path = str(pathlib.Path(dst).relative_to(local_base))
+                        logger.info(f"  Would delete: {rel_path}")
+                return
+
+            # Execute actions with progress bar
+            with tqdm(total=total_size_to_copy, unit="B", unit_scale=True) as pbar:
+                for action, src, dst, size in actions:
+                    try:
+                        if action == "copy":
+                            # Create parent directories if needed
+                            logger.debug(
+                                f"Creating local directory: {os.path.dirname(dst)}"
+                            )
+                            pathlib.Path(dst).parent.mkdir(parents=True, exist_ok=True)
+
+                            # Copy with progress
+                            rel_path = str(pathlib.Path(dst).relative_to(local_base))
+                            logger.info(f"Copying {rel_path}")
+                            pbar.set_description(f"Copying {rel_path}")
+                            sftp.get(src, dst)
+                            pbar.update(size)
+
+                            # Update local mtime to match remote
+                            logger.debug(f"Updating mtime for {rel_path}")
+                            os.utime(dst, (remote_mtime, remote_mtime))
+                            logger.info(f"Successfully copied: {rel_path}")
+                        else:
+                            rel_path = str(pathlib.Path(dst).relative_to(local_base))
+                            logger.info(f"Deleting {rel_path}")
+                            pbar.write(f"Deleting {rel_path}")
+                            try:
+                                pathlib.Path(dst).unlink()
+                                logger.info(f"Successfully deleted: {rel_path}")
+                            except FileNotFoundError as e:
+                                logger.warning(f"Failed to delete {rel_path}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing {dst}: {e}")
+                        raise
+
+        # Main sync logic
+        try:
+            source_instance, source_path = parse_instance_path(source_path)
+            dest_instance, dest_path = parse_instance_path(dest_path)
+
+            # Validate that exactly one side is a remote path
+            if (source_instance and dest_instance) or (
+                not source_instance and not dest_instance
+            ):
+                msg = "One (and only one) path must be a remote path in the format instance_id:/path"
+                logger.error(msg)
+                raise ValueError(msg)
+
+            # Validate instance ID matches
+            instance_id = source_instance or dest_instance
+            if instance_id != self.id:
+                msg = f"Instance ID in path ({instance_id}) doesn't match this instance ({self.id})"
+                logger.error(msg)
+                raise ValueError(msg)
+
+            operation_type = "from" if source_instance else "to"
+            logger.info(
+                f"{'[DRY RUN] ' if dry_run else ''}Syncing {operation_type} remote..."
+            )
+
+            # Open SFTP session
+            logger.info("Opening SFTP session")
+            with self.ssh() as ssh:
+                sftp = ssh._client.open_sftp()
+                try:
+                    if source_instance:
+                        # Downloading from instance
+                        logger.info("Starting download from instance")
+                        sync_from_remote(sftp, source_path, dest_path, delete)
+                    else:
+                        # Uploading to instance
+                        logger.info("Starting upload to instance")
+                        sync_to_remote(sftp, source_path, dest_path, delete)
+                    logger.info("Sync operation completed successfully")
+                except Exception as e:
+                    logger.error(f"Sync operation failed: {e}")
+                    raise
+                finally:
+                    logger.debug("Closing SFTP session")
+                    sftp.close()
+        except Exception as e:
+            logger.error(f"Sync failed: {str(e)}")
+            raise
