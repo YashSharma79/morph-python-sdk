@@ -694,20 +694,42 @@ class Instance(BaseModel):
     def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
 
-    def sync(
-        self,
-        source_path: str,
-        dest_path: str,
-        delete: bool = False,
-        dry_run: bool = False,
-    ) -> None:
-        """Synchronize a local directory to a remote directory (or vice versa)."""
+    def sync(self, source_path: str, dest_path: str, delete: bool = False, dry_run: bool = False, 
+             respect_gitignore: bool = False) -> None:
+        """Synchronize a local directory to a remote directory (or vice versa).
+
+        Args:
+            source_path: Path to source directory (local or remote)
+            dest_path: Path to destination directory (remote or local)
+            delete: If True, delete files in dest that don't exist in source
+            dry_run: If True, show what would be done without making changes
+            respect_gitignore: If True, respect .gitignore patterns
+        """
+        
         import os
         import stat
         import pathlib
         import logging
         from typing import Set, Dict, Tuple
         from tqdm import tqdm
+
+        import pathspec
+
+        def get_gitignore_spec(dir_path: str) -> Optional[pathspec.PathSpec]:
+            """Get PathSpec from .gitignore if it exists."""
+            gitignore_path = os.path.join(dir_path, '.gitignore')
+            try:
+                with open(gitignore_path) as f:
+                    return pathspec.PathSpec.from_lines('gitwildmatch', f)
+            except FileNotFoundError:
+                return None
+
+        def should_ignore(path: str, base_dir: str, ignore_spec: Optional[pathspec.PathSpec]) -> bool:
+            """Check if path should be ignored based on gitignore rules."""
+            if not ignore_spec:
+                return False
+            rel_path = os.path.relpath(path, base_dir)
+            return ignore_spec.match_file(rel_path)        
 
         # Set up logging
         logger = logging.getLogger("morph.sync")
@@ -757,7 +779,6 @@ class Instance(BaseModel):
 
         def get_local_info(path: str) -> Dict[str, Tuple[int, int]]:
             """Get recursive file listing for local directory."""
-            logger.debug(f"Scanning local directory: {path}")
             info = {}
             path = pathlib.Path(path)
 
@@ -765,12 +786,17 @@ class Instance(BaseModel):
                 logger.warning(f"Local path does not exist: {path}")
                 return info
 
+            ignore_spec = get_gitignore_spec(str(path)) if respect_gitignore else None
+
             for item in path.rglob("*"):
                 if item.is_file():
+                    # Skip if path matches gitignore patterns
+                    if should_ignore(str(item), str(path), ignore_spec):
+                        logger.debug(f"Ignoring file (gitignore): {item}")
+                        continue
+
                     stat_info = item.stat()
-                    logger.debug(
-                        f"Found local file: {item} (size={stat_info.st_size}, mtime={stat_info.st_mtime})"
-                    )
+                    logger.debug(f"Found local file: {item} (size={stat_info.st_size}, mtime={stat_info.st_mtime})")
                     info[str(item)] = (stat_info.st_size, stat_info.st_mtime)
 
             return info
