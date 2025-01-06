@@ -377,44 +377,84 @@ class SSHClient:
 
         channel = transport.open_session()
 
+        # Allocate a pseudo-terminal if requested:
         if get_pty:
             channel.get_pty(term="dumb")
 
         start = time.monotonic()
         channel.exec_command(command)
 
+        # If the user wants a background process, return immediately:
         if background:
             return BackgroundProcess(channel, command)
 
-        # Use direct recv() in both cases
         stdout_data = []
         stderr_data = []
 
-        while (
-            not channel.exit_status_ready()
-            or channel.recv_ready()
-            or channel.recv_stderr_ready()
-        ):
-            if channel.recv_ready():
+        # Main read loop
+        while True:
+            # Pull any available data from stdout
+            while channel.recv_ready():
                 chunk = channel.recv(4096)
-                if chunk:
-                    stdout_data.append(chunk)
-            if channel.recv_stderr_ready():
-                chunk = channel.recv_stderr(4096)
-                if chunk:
-                    stderr_data.append(chunk)
+                stdout_data.append(chunk)
 
-            if timeout is not None and time.monotonic() - start > timeout:
+            # Pull any available data from stderr
+            while channel.recv_stderr_ready():
+                chunk = channel.recv_stderr(4096)
+                stderr_data.append(chunk)
+
+            # Check if command is done (exit status ready)
+            if channel.exit_status_ready():
+                # Final pass: there could still be trailing data in the buffer
+                # or arriving slightly after exit_status is set.
+                final_start = time.monotonic()
+                final_timeout = 0.1  # 100ms "grace period" (adjust as needed)
+
+                while True:
+                    data_read = False
+
+                    # Read from stdout if any
+                    while channel.recv_ready():
+                        chunk = channel.recv(4096)
+                        stdout_data.append(chunk)
+                        data_read = True
+
+                    # Read from stderr if any
+                    while channel.recv_stderr_ready():
+                        chunk = channel.recv_stderr(4096)
+                        stderr_data.append(chunk)
+                        data_read = True
+
+                    if data_read:
+                        # If we read anything, reset the final_start timer
+                        final_start = time.monotonic()
+
+                    # If we've gone final_timeout seconds with no new data, break
+                    if (time.monotonic() - final_start) > final_timeout:
+                        break
+
+                    time.sleep(0.01)
+
+                break  # exit main loop
+
+            # Handle timeouts, if specified
+            if timeout is not None and (time.monotonic() - start > timeout):
+                # We'll raise an error but provide any partial stdout/stderr
                 raise SSHError(
-                    f"Command '{command}' timed out after {timeout} seconds\nstdout: {b''.join(stdout_data).decode()}\nstderr: {b''.join(stderr_data).decode()}"
+                    f"Command '{command}' timed out after {timeout} seconds.\n"
+                    f"stdout: {b''.join(stdout_data).decode(errors='replace')}\n"
+                    f"stderr: {b''.join(stderr_data).decode(errors='replace')}"
                 )
 
+            # Brief sleep to prevent busy-looping
+            time.sleep(0.05)
+
+        # Decode outputs
         stdout = b"".join(stdout_data).decode("utf-8", errors="replace")
         stderr = b"".join(stderr_data).decode("utf-8", errors="replace")
-        returncode = channel.recv_exit_status()
 
-        if returncode != 0:
-            raise SSHCommandError(command, returncode, stdout, stderr)
+        # Get the final exit code
+        returncode = channel.recv_exit_status()
 
         return CommandResult(command, returncode, stdout, stderr)
 
