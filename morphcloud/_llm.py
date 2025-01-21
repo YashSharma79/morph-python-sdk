@@ -65,7 +65,7 @@ Inspect the stdout, stderr, and exit code of the command's result and provide a 
 Note that each command you execute will be run in a separate SSH session so any state changes (e.g. environment variables, directory changes) will not persist between commands. Handle this transparently for the user.
 """
 
-MAX_TOKENS = 1000
+MAX_TOKENS = 4096
 
 
 class ToolCall(BaseModel):
@@ -355,8 +355,19 @@ def agent_loop(instance):
 
         messages.append({"role": "user", "content": user_input})
 
-        response_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
-        response_msg, tool_use_active = process_assistant_message(response_stream)
+        while True:
+            try:
+                response_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
+                response_msg, tool_use_active = process_assistant_message(
+                    response_stream
+                )
+                break
+            except anthropic.APIStatusError as e:
+                print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
+                time.sleep(anthropic_error_wait_time)
+                continue
+            except Exception as e:
+                break
 
         messages.append({"role": "assistant", "content": response_msg["content"]})
 
@@ -393,12 +404,24 @@ def agent_loop(instance):
                     }
                 )
 
-                second_response_stream = call_model(
-                    client, SYSTEM_MESSAGE, messages, tools
-                )
-                response_msg, tool_use_active = process_assistant_message(
-                    second_response_stream
-                )
+                while True:
+                    try:
+                        second_response_stream = call_model(
+                            client, SYSTEM_MESSAGE, messages, tools
+                        )
+                        response_msg, tool_use_active = process_assistant_message(
+                            second_response_stream
+                        )
+                        break
+                    except anthropic.APIStatusError as e:
+                        print(
+                            f"Received {e=}, retrying in {anthropic_error_wait_time}s"
+                        )
+                        time.sleep(anthropic_error_wait_time)
+                        continue
+                    except Exception as e:
+                        break
+
                 messages.append(
                     {"role": "assistant", "content": response_msg["content"]}
                 )
