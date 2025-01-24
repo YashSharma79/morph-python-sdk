@@ -133,7 +133,7 @@ async def main():
         print("No instances found. Please create an instance first.")
         return
 
-    instance = instances[0]
+    instance = instances[0] # j use the first instance to test for now, maybe want to make a new instance to copy off of in future
 
     # Run sync test
     print("\nRunning synchronous tests...")
