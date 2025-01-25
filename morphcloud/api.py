@@ -516,36 +516,6 @@ class Instance(BaseModel):
             self._api._client.snapshots
         )
 
-    def branch_sequential(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
-        """Original sequential branch implementation for testing."""
-        response = self._api._client._http_client.post(
-            f"/instance/{self.id}/branch", params={"count": count}
-        )
-        _json = response.json()
-        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
-            self._api._client.snapshots
-        )
-        instances = [
-            Instance.model_validate(instance)._set_api(self._api)
-            for instance in _json["instances"]
-        ]
-        return snapshot, instances
-
-    async def abranch_sequential(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
-        """Original sequential async branch implementation for testing."""
-        response = await self._api._client._async_http_client.post(
-            f"/instance/{self.id}/branch", params={"count": count}
-        )
-        _json = response.json()
-        snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
-            self._api._client.snapshots
-        )
-        instances = [
-            Instance.model_validate(instance)._set_api(self._api)
-            for instance in _json["instances"]
-        ]
-        return snapshot, instances
-
     def branch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
         """Branch the instance into multiple copies in parallel."""
         response = self._api._client._http_client.post(
