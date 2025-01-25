@@ -574,6 +574,7 @@ class Instance(BaseModel):
 
     async def abranch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
         """Branch the instance into multiple copies in parallel using asyncio."""
+        # might need to make a task?
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/branch", params={"count": count}
         )
