@@ -12,6 +12,7 @@ from functools import lru_cache
 import httpx
 
 from pydantic import BaseModel, Field, PrivateAttr
+from concurrent.futures import ThreadPoolExecutor
 
 from morphcloud._ssh import SSHClient
 
@@ -516,7 +517,7 @@ class Instance(BaseModel):
         )
 
     def branch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
-        """Branch the instance into multiple copies."""
+        """Branch the instance into multiple copies in parallel."""
         response = self._api._client._http_client.post(
             f"/instance/{self.id}/branch", params={"count": count}
         )
@@ -524,16 +525,26 @@ class Instance(BaseModel):
         snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
             self._api._client.snapshots
         )
-        instances = [
-            Instance.model_validate(instance)._set_api(self._api)
-            for instance in _json["instances"]
-        ]
+
+        instance_ids = [instance["id"] for instance in _json["instances"]]
+
+        def start_and_wait(instance_id: str) -> Instance:
+            instance = Instance.model_validate({
+                "id": instance_id,
+                "status": InstanceStatus.PENDING,
+                **_json["instances"][instance_ids.index(instance_id)]
+            })._set_api(self._api)
+            instance.wait_until_ready()
+            return instance
+
+        with ThreadPoolExecutor(max_workers=min(count, 10)) as executor:
+            instances = list(executor.map(start_and_wait, instance_ids))
+
         return snapshot, instances
 
-    async def abranch(
-        self, count: int
-    ) -> typing.Tuple[Snapshot, typing.List[Instance]]:
-        """Branch the instance into multiple copies."""
+    async def abranch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
+        """Branch the instance into multiple copies in parallel using asyncio."""
+        # might need to make a task?
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/branch", params={"count": count}
         )
@@ -541,10 +552,22 @@ class Instance(BaseModel):
         snapshot = Snapshot.model_validate(_json["snapshot"])._set_api(
             self._api._client.snapshots
         )
-        instances = [
-            Instance.model_validate(instance)._set_api(self._api)
-            for instance in _json["instances"]
-        ]
+
+        instance_ids = [instance["id"] for instance in _json["instances"]]
+
+        async def start_and_wait(instance_id: str) -> Instance:
+            instance = Instance.model_validate({
+                "id": instance_id,
+                "status": InstanceStatus.PENDING,
+                **_json["instances"][instance_ids.index(instance_id)]
+            })._set_api(self._api)
+            await instance.await_until_ready()
+            return instance
+
+        instances = await asyncio.gather(
+            *(start_and_wait(instance_id) for instance_id in instance_ids)
+        )
+
         return snapshot, instances
 
     def expose_http_service(self, name: str, port: int) -> None:
@@ -694,7 +717,7 @@ class Instance(BaseModel):
     def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
 
-    def sync(self, source_path: str, dest_path: str, delete: bool = False, dry_run: bool = False, 
+    def sync(self, source_path: str, dest_path: str, delete: bool = False, dry_run: bool = False,
              respect_gitignore: bool = False) -> None:
         """Synchronize a local directory to a remote directory (or vice versa).
 
@@ -705,7 +728,7 @@ class Instance(BaseModel):
             dry_run: If True, show what would be done without making changes
             respect_gitignore: If True, respect .gitignore patterns
         """
-        
+
         import os
         import stat
         import pathlib
@@ -729,7 +752,7 @@ class Instance(BaseModel):
             if not ignore_spec:
                 return False
             rel_path = os.path.relpath(path, base_dir)
-            return ignore_spec.match_file(rel_path)        
+            return ignore_spec.match_file(rel_path)
 
         # Set up logging
         logger = logging.getLogger("morph.sync")
