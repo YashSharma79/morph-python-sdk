@@ -29,7 +29,7 @@ def is_jupyter_notebook() -> bool:
     except NameError:
         return False  # Probably standard Python interpreter
 
-
+    
 def get_iframe_object_from_instance_id(
     base_url: str, instance_id: str, width: int = 1280 // 2, height=720 // 2
 ) -> Any:
