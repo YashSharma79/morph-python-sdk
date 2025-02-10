@@ -22,10 +22,12 @@ if readline:
 import anthropic
 from pydantic import BaseModel
 
+
 def _get_anthropic_api_key():
     key = os.environ["ANTHROPIC_API_KEY"]
     assert key, "Anthropic API key cannot be an empty string"
     return key
+
 
 MODEL_NAME = "claude-3-5-sonnet-20241022"
 
@@ -217,7 +219,9 @@ def run_tool(tool_call: ToolCall, instance) -> Dict[str, Any]:
         return {"error": f"Unknown tool '{tool_call.name}'"}
 
 
-def call_model(client: anthropic.Anthropic, system: str, messages: List[Dict], tools: List[Dict]):
+def call_model(
+    client: anthropic.Anthropic, system: str, messages: List[Dict], tools: List[Dict]
+):
     return client.messages.create(
         model=MODEL_NAME,
         system=system,
@@ -331,7 +335,9 @@ def agent_loop(instance):
     try:
         client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
     except KeyError as e:
-        print(f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}")
+        print(
+            f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}"
+        )
         raise e
 
     if readline:
@@ -362,7 +368,6 @@ def agent_loop(instance):
             break
 
         messages.append({"role": "user", "content": user_input})
-            
 
         while True:
             try:

@@ -338,4 +338,4 @@ if __name__ == "__main__":
         scramble=3,  # Increased for more visible effect
         chance=1.0,  # Set to 1.0 for deterministic resolution
         overflow=True,  # Allow full-width ASCII art
-    )    
+    )
