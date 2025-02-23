@@ -7,6 +7,7 @@ import re
 import time
 import typing
 import asyncio
+from functools import partial
 
 from functools import lru_cache
 
@@ -14,6 +15,15 @@ import httpx
 
 from pydantic import BaseModel, Field, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
+
+# Import Rich for fancy printing
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+
+# Global console instance
+console = Console()
 
 
 @lru_cache
@@ -190,7 +200,10 @@ class SnapshotRefs(BaseModel):
     image_id: str
 
 
-class SnapshotAPI(BaseAPI):
+class SnapshotAPI:
+    def __init__(self, client: MorphCloudClient):
+        self._client = client
+
     def list(
         self,
         digest: typing.Optional[str] = None,
@@ -250,10 +263,7 @@ class SnapshotAPI(BaseAPI):
             body["digest"] = digest
         if metadata is not None:
             body["metadata"] = metadata
-        response = self._client._http_client.post(
-            "/snapshot",
-            json=body,
-        )
+        response = self._client._http_client.post("/snapshot", json=body)
         return Snapshot.model_validate(response.json())._set_api(self)
 
     async def acreate(
@@ -279,42 +289,34 @@ class SnapshotAPI(BaseAPI):
             body["digest"] = digest
         if metadata is not None:
             body["metadata"] = metadata
-        response = await self._client._async_http_client.post(
-            "/snapshot",
-            json=body,
-        )
+        response = await self._client._async_http_client.post("/snapshot", json=body)
         return Snapshot.model_validate(response.json())._set_api(self)
 
     def get(self, snapshot_id: str) -> Snapshot:
-        """Get a snapshot by ID."""
         response = self._client._http_client.get(f"/snapshot/{snapshot_id}")
         return Snapshot.model_validate(response.json())._set_api(self)
 
     async def aget(self, snapshot_id: str) -> Snapshot:
-        """Get a snapshot by ID."""
         response = await self._client._async_http_client.get(f"/snapshot/{snapshot_id}")
         return Snapshot.model_validate(response.json())._set_api(self)
 
 
 class Snapshot(BaseModel):
     id: str = Field(
-        ..., description="Unique identifier for the snapshot, like snapshot_xxxx"
+        ..., description="Unique identifier for the snapshot, e.g. snapshot_xxxx"
     )
     object: typing.Literal["snapshot"] = Field(
         "snapshot", description="Object type, always 'snapshot'"
     )
-    created: int = Field(
-        ..., description="Unix timestamp of when the snapshot was created"
-    )
-    status: SnapshotStatus = Field(..., description="Status of the snapshot")
+    created: int = Field(..., description="Unix timestamp of snapshot creation")
+    status: SnapshotStatus = Field(..., description="Snapshot status")
     spec: ResourceSpec = Field(..., description="Resource specifications")
     refs: SnapshotRefs = Field(..., description="Referenced resources")
     digest: typing.Optional[str] = Field(
-        default=None, description="User provided digest of the snapshot content"
+        default=None, description="User provided digest"
     )
     metadata: typing.Dict[str, str] = Field(
-        default_factory=dict,
-        description="User provided metadata for the snapshot",
+        default_factory=dict, description="User provided metadata"
     )
 
     _api: SnapshotAPI = PrivateAttr()
@@ -324,50 +326,209 @@ class Snapshot(BaseModel):
         return self
 
     def delete(self) -> None:
-        """Delete the snapshot."""
         response = self._api._client._http_client.delete(f"/snapshot/{self.id}")
         response.raise_for_status()
 
     async def adelete(self) -> None:
-        """Delete the snapshot."""
         response = await self._api._client._async_http_client.delete(
             f"/snapshot/{self.id}"
         )
         response.raise_for_status()
 
     def set_metadata(self, metadata: typing.Dict[str, str]) -> None:
-        """Set metadata for the snapshot."""
         response = self._api._client._http_client.post(
-            f"/snapshot/{self.id}/metadata",
-            json=metadata,
+            f"/snapshot/{self.id}/metadata", json=metadata
         )
         response.raise_for_status()
         self._refresh()
 
     async def aset_metadata(self, metadata: typing.Dict[str, str]) -> None:
-        """Set metadata for the snapshot."""
         response = await self._api._client._async_http_client.post(
-            f"/snapshot/{self.id}/metadata",
-            json=metadata,
+            f"/snapshot/{self.id}/metadata", json=metadata
         )
         response.raise_for_status()
         await self._refresh_async()
 
     def _refresh(self) -> None:
         refreshed = self._api.get(self.id)
-        # Use pydantic's parse_obj to ensure fields remain typed
         updated = type(self).model_validate(refreshed.model_dump())
-
-        # Now 'updated' is a fully validated model. Update self with these fields:
         for key, value in updated.__dict__.items():
             setattr(self, key, value)
 
     async def _refresh_async(self) -> None:
-        """Refresh the snapshot data."""
         refreshed = await self._api.aget(self.id)
         updated = type(self).model_validate(refreshed.model_dump())
         for key, value in updated.__dict__.items():
             setattr(self, key, value)
+
+    @staticmethod
+    def compute_chain_hash(parent_chain_hash: str, effect_identifier: str) -> str:
+        """
+        Computes a chain hash based on the parent's chain hash and an effect identifier.
+        The effect identifier is typically derived from the function name and its arguments.
+        """
+        hasher = hashlib.sha256()
+        hasher.update(parent_chain_hash.encode("utf-8"))
+        hasher.update(b"\n")
+        hasher.update(effect_identifier.encode("utf-8"))
+        return hasher.hexdigest()
+
+    def _run_command_effect(
+        self, instance: Instance, command: str, background: bool, get_pty: bool
+    ) -> None:
+        """
+        Executes a shell command on the given instance, streaming output via Rich.
+        If background is True, the command is run without waiting for completion.
+        """
+        ssh_client = instance.ssh_connect()
+        try:
+            channel = ssh_client.get_transport().open_session()
+            if get_pty:
+                channel.get_pty(width=120, height=40)
+            channel.exec_command(command)
+
+            if background:
+                console.print(
+                    f"[blue]Command is running in the background:[/blue] {command}"
+                )
+                channel.close()
+                return
+
+            console.print(
+                f"[bold blue]🔧 Running command (foreground):[/bold blue] [yellow]{command}[/yellow]"
+            )
+            output_buffer = ""
+            panel = Panel(
+                output_buffer or "[dim]No output yet...[/dim]",
+                title="📄 Command Output",
+                border_style="cyan",
+            )
+            with Live(panel, console=console, refresh_per_second=4) as live:
+                while not channel.exit_status_ready():
+                    if channel.recv_ready():
+                        data = channel.recv(1024).decode("utf-8", errors="replace")
+                        if data:
+                            output_buffer += data
+                            live.update(
+                                Panel(
+                                    output_buffer,
+                                    title="📄 Command Output",
+                                    border_style="cyan",
+                                )
+                            )
+                    time.sleep(0.2)
+                while channel.recv_ready():
+                    data = channel.recv(1024).decode("utf-8", errors="replace")
+                    if data:
+                        output_buffer += data
+                        live.update(
+                            Panel(
+                                output_buffer,
+                                title="📄 Command Output",
+                                border_style="cyan",
+                            )
+                        )
+                exit_code = channel.recv_exit_status()
+                if exit_code != 0:
+                    console.print(
+                        f"[bold red]⚠️ Warning:[/bold red] Command exited with code [red]{exit_code}[/red]"
+                    )
+            channel.close()
+        finally:
+            ssh_client.close()
+
+    def _cache_effect(
+        self,
+        fn: typing.Callable[[Instance], None],
+        *args,
+        **kwargs,
+    ) -> Snapshot:
+        """
+        Generic caching mechanism based on a "chain hash":
+          - Computes a unique hash from the parent's chain hash (self.digest or self.id)
+            and the function name + arguments.
+          - Prints out the effect function and arguments.
+          - If a snapshot already exists with that chain hash in its .digest, returns it.
+          - Otherwise, starts an instance from this snapshot, applies `fn` (with *args/**kwargs),
+            snapshots the instance (embedding that chain hash in `digest`), and returns it.
+        """
+
+        # 1) Print out which function and args/kwargs are being applied
+        console.print(
+            "\n[bold black on white]Effect function:[/bold black on white] "
+            f"[cyan]{fn.__name__}[/cyan]\n"
+            f"[bold white]args:[/bold white] [yellow]{args}[/yellow]   "
+            f"[bold white]kwargs:[/bold white] [yellow]{kwargs}[/yellow]\n"
+        )
+
+        # 2) Determine the parent chain hash:
+        parent_chain_hash = self.digest or self.id
+
+        # 3) Build an effect identifier string from the function name + the stringified arguments.
+        effect_identifier = fn.__name__ + str(args) + str(kwargs)
+
+        # 4) Compute the new chain hash
+        new_chain_hash = self.compute_chain_hash(parent_chain_hash, effect_identifier)
+
+        # 5) Check if there's already a snapshot with that digest
+        candidates = self._api.list(digest=new_chain_hash)
+        if candidates:
+            console.print(
+                f"[bold green]✅ Using cached snapshot[/bold green] "
+                f"with digest [white]{new_chain_hash}[/white] "
+                f"for effect [yellow]{fn.__name__}[/yellow]."
+            )
+            return candidates[0]
+
+        # 6) Otherwise, apply the effect on a fresh instance from this snapshot
+        console.print(
+            f"[bold magenta]🚀 Building new snapshot[/bold magenta] "
+            f"with digest [white]{new_chain_hash}[/white]."
+        )
+        instance = self._api._client.instances.start(self.id)
+        try:
+            instance.wait_until_ready(timeout=300)
+            fn(instance, *args, **kwargs)  # Actually run the effect
+            # 7) Snapshot the instance, passing digest=new_chain_hash to store the chain hash
+            new_snapshot = instance.snapshot(digest=new_chain_hash)
+        finally:
+            instance.stop()
+
+        # 8) Return the newly created snapshot
+        console.print(
+            f"[bold blue]🎉 New snapshot created[/bold blue] "
+            f"with digest [white]{new_chain_hash}[/white].\n"
+        )
+        return new_snapshot
+
+    def setup(self, command: str) -> Snapshot:
+        """
+        Run a command (with get_pty=True, in the foreground) on top of this snapshot.
+        Returns a new snapshot that includes the modifications from that command.
+        Uses _cache_effect(...) to avoid re-building if an identical effect was applied before.
+        """
+        return self._cache_effect(
+            fn=self._run_command_effect,
+            command=command,
+            background=False,
+            get_pty=True,
+        )
+
+    async def asetup(self, command: str) -> Snapshot:
+        return await asyncio.to_thread(self.setup, command)
+
+    def _apply_single_command(self, command: str) -> Snapshot:
+        """
+        Original synchronous helper kept for backward compatibility.
+        Internally delegates to _cache_effect so that an existing chain-hash
+        matching this command won't trigger a rebuild.
+        """
+        return self._cache_effect(
+            fn=self._run_command_effect,
+            command=command,
+            background=False,
+            get_pty=True,
+        )
 
 
 class InstanceStatus(enum.StrEnum):
@@ -603,8 +764,9 @@ class Instance(BaseModel):
 
         return snapshot, instances
 
-
-    def expose_http_service(self, name: str, port: int, auth_mode: typing.Optional[str] = None) -> str:
+    def expose_http_service(
+        self, name: str, port: int, auth_mode: typing.Optional[str] = None
+    ) -> str:
         """
         Expose an HTTP service.
 
@@ -633,7 +795,9 @@ class Instance(BaseModel):
         )
         return url
 
-    async def aexpose_http_service(self, name: str, port: int, auth_mode: typing.Optional[str] = None) -> str:
+    async def aexpose_http_service(
+        self, name: str, port: int, auth_mode: typing.Optional[str] = None
+    ) -> str:
         """
         Expose an HTTP service asynchronously.
 
@@ -788,6 +952,12 @@ class Instance(BaseModel):
     def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        await self.astop()
+
     def sync(
         self,
         source_path: str,
@@ -836,9 +1006,6 @@ class Instance(BaseModel):
             f"respect_gitignore={respect_gitignore}, max_workers={max_workers}"
         )
 
-        # ---------------------------------------------------------------------
-        # 1) HELPER FUNCTIONS
-        # ---------------------------------------------------------------------
         def parse_instance_path(path: str):
             if ":" not in path:
                 return None, path
@@ -868,9 +1035,6 @@ class Instance(BaseModel):
             rel_path = os.path.relpath(path, base_dir)
             return ignore_spec.match_file(rel_path)
 
-        # ---------------------------------------------------------------------
-        # 2) LOCAL SCANNING USING "ls -lR" (POSIX only) OR FALLBACK
-        # ---------------------------------------------------------------------
         def get_local_info_fallback(local_path: str) -> Dict[str, Tuple[int, float]]:
             """Fallback using Python's rglob (slower for large trees)."""
             info = {}
