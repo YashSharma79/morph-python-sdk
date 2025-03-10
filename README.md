@@ -83,65 +83,76 @@ You can use the CLI to create, delete, and manage runtime instances.
 
 List available images:
 ```bash
-morph image list [--json]
+morphcloud image list [--json]
 ```
 
 ### Snapshots
 
 ```bash
 # List all snapshots
-morph snapshot list [--json]
+morphcloud snapshot list [--json]
 
 # Create a new snapshot
-morph snapshot create --image-id <id> --vcpus <n> --memory <mb> --disk-size <mb> [--digest <hash>]
+morphcloud snapshot create --image-id <id> --vcpus <n> --memory <mb> --disk-size <mb> [--digest <hash>]
 
 # Delete a snapshot
-morph snapshot delete <snapshot-id>
+morphcloud snapshot delete <snapshot-id>
 ```
 
 ### Instances
 
 ```bash
 # List all instances
-morph instance list [--json]
+morphcloud instance list [--json]
 
 # Start a new instance from snapshot
-morph instance start <snapshot-id> [--json]
+morphcloud instance start <snapshot-id> [--json]
 
 # Stop an instance
-morph instance stop <instance-id>
+morphcloud instance stop <instance-id>
 
 # Get instance details
-morph instance get <instance-id>
+morphcloud instance get <instance-id>
 
 # Create snapshot from instance
-morph instance snapshot <instance-id> [--json]
+morphcloud instance snapshot <instance-id> [--json]
 
 # Clone an instance
-morph instance branch <instance-id> [--count <n>]
+morphcloud instance branch <instance-id> [--count <n>]
 ```
 
 ### Instance Management
 
 ```bash
 # Execute command on instance
-morph instance exec <instance-id> <command>
+morphcloud instance exec <instance-id> <command>
 
 # SSH into instance
-morph instance ssh <instance-id> [command]
+morphcloud instance ssh <instance-id> [command]
 
 # Direct SSH access (alternative method)
 # You can also SSH directly into a MorphVM instance using:
 ssh <instance-id>@ssh.cloud.morph.so
 
 # Port forwarding
-morph instance port-forward <instance-id> <remote-port> [local-port]
+morphcloud instance port-forward <instance-id> <remote-port> [local-port]
 
 # Expose HTTP service
-morph instance expose-http <instance-id> <name> <port>
+morphcloud instance expose-http <instance-id> <name> <port> [--auth-mode <mode>]
+# Use --auth-mode=api_key to require API key authentication for access
 
 # Hide HTTP service
-morph instance hide-http <instance-id> <name>
+morphcloud instance hide-http <instance-id> <name>
+```
+
+### File Transfer and Synchronization
+
+```bash
+# Copy files to/from an instance
+morphcloud instance copy <source> <destination> [--recursive]
+
+# Synchronize directories
+morphcloud instance sync <source> <destination> [--delete] [--dry-run] [-v]
 ```
 
 ### Interactive Chat
@@ -151,6 +162,5 @@ Start an interactive chat session with an instance:
 **Note:** You'll need to set `ANTHROPIC_API_KEY` environment variable to use this command.
 
 ```bash
-morph instance chat <instance-id> [instructions]
+morphcloud instance chat <instance-id> [instructions]
 ```
-
