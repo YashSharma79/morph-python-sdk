@@ -401,16 +401,27 @@ def branch_instance(instance_id, count):
     for clone in clones:
         click.echo(format_json(clone))
 
-
 @instance.command("expose-http")
 @click.argument("instance_id")
 @click.argument("name")
 @click.argument("port", type=int)
-def expose_http_service(instance_id, name, port):
-    """Expose an HTTP service"""
+@click.option(
+    "--auth-mode", 
+    help="Authentication mode (use 'api_key' to require API key authentication)"
+)
+def expose_http_service(instance_id, name, port, auth_mode):
+    """Expose an HTTP service
+    
+    When using --auth-mode=api_key, the service will require API key authentication
+    via Authorization: Bearer MORPH_API_KEY in HTTP headers.
+    """
     instance = client.instances.get(instance_id)
-    instance.expose_http_service(name, port)
-    click.echo(f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so")
+    instance.expose_http_service(name, port, auth_mode)
+    url = f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so"
+    click.echo(url)
+    if auth_mode == "api_key":
+        click.echo("API key authentication required for this service")
+
 
 
 @instance.command("hide-http")
