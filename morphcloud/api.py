@@ -573,20 +573,43 @@ class Instance(BaseModel):
 
         return snapshot, instances
 
-    def expose_http_service(self, name: str, port: int) -> None:
-        """Expose an HTTP service."""
+    
+    def expose_http_service(self, name: str, port: int, auth_mode: Optional[str] = None) -> None:
+        """
+        Expose an HTTP service.
+        
+        Parameters:
+            name: The name of the service.
+            port: The port to expose.
+            auth_mode: Optional authentication mode. Use "api_key" to require API key authentication.
+        """
+        payload = {"name": name, "port": port}
+        if auth_mode is not None:
+            payload["auth_mode"] = auth_mode
+            
         response = self._api._client._http_client.post(
             f"/instance/{self.id}/http",
-            json={"name": name, "port": port},
+            json=payload,
         )
         response.raise_for_status()
         self._refresh()
 
-    async def aexpose_http_service(self, name: str, port: int) -> None:
-        """Expose an HTTP service."""
+    async def aexpose_http_service(self, name: str, port: int, auth_mode: Optional[str] = None) -> None:
+        """
+        Expose an HTTP service asynchronously.
+        
+        Parameters:
+            name: The name of the service.
+            port: The port to expose.
+            auth_mode: Optional authentication mode. Use "api_key" to require API key authentication.
+        """
+        payload = {"name": name, "port": port}
+        if auth_mode is not None:
+            payload["auth_mode"] = auth_mode
+            
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/http",
-            json={"name": name, "port": port},
+            json=payload,
         )
         response.raise_for_status()
         await self._refresh_async()
