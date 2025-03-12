@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import enum
 import json
+import re
 import time
 import typing
 import asyncio
@@ -602,46 +603,64 @@ class Instance(BaseModel):
 
         return snapshot, instances
 
-    
-    def expose_http_service(self, name: str, port: int, auth_mode: Optional[str] = None) -> None:
+
+    def expose_http_service(self, name: str, port: int, auth_mode: typing.Optional[str] = None) -> str:
         """
         Expose an HTTP service.
-        
+
         Parameters:
             name: The name of the service.
             port: The port to expose.
             auth_mode: Optional authentication mode. Use "api_key" to require API key authentication.
+
+        Returns:
+            The URL of the exposed service.
         """
         payload = {"name": name, "port": port}
         if auth_mode is not None:
             payload["auth_mode"] = auth_mode
-            
+
         response = self._api._client._http_client.post(
             f"/instance/{self.id}/http",
             json=payload,
         )
         response.raise_for_status()
         self._refresh()
+        url = next(
+            service.url
+            for service in self.networking.http_services
+            if service.name == name
+        )
+        return url
 
-    async def aexpose_http_service(self, name: str, port: int, auth_mode: Optional[str] = None) -> None:
+    async def aexpose_http_service(self, name: str, port: int, auth_mode: typing.Optional[str] = None) -> str:
         """
         Expose an HTTP service asynchronously.
-        
+
         Parameters:
             name: The name of the service.
             port: The port to expose.
             auth_mode: Optional authentication mode. Use "api_key" to require API key authentication.
+
+        Returns:
+            The URL of the exposed service
         """
         payload = {"name": name, "port": port}
         if auth_mode is not None:
             payload["auth_mode"] = auth_mode
-            
+
         response = await self._api._client._async_http_client.post(
             f"/instance/{self.id}/http",
             json=payload,
         )
         response.raise_for_status()
         await self._refresh_async()
+        url = next(
+            service.url
+            for service in self.networking.http_services
+            if service.name == name
+        )
+        return url
 
     def hide_http_service(self, name: str) -> None:
         """Unexpose an HTTP service."""
