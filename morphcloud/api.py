@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import os
-import enum
 import json
-import re
 import time
 import typing
 import asyncio
-from functools import partial
 
 from functools import lru_cache
 
@@ -21,6 +18,8 @@ import hashlib
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
+
+from morphcloud._utils import StrEnum
 
 # Global console instance
 console = Console()
@@ -181,8 +180,7 @@ class Image(BaseModel):
         self._api = api
         return self
 
-
-class SnapshotStatus(enum.StrEnum):
+class SnapshotStatus(StrEnum):
     PENDING = "pending"
     READY = "ready"
     FAILED = "failed"
@@ -531,7 +529,7 @@ class Snapshot(BaseModel):
         )
 
 
-class InstanceStatus(enum.StrEnum):
+class InstanceStatus(StrEnum):
     PENDING = "pending"
     READY = "ready"
     PAUSED = "paused"
