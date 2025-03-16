@@ -348,11 +348,17 @@ def list_instances(metadata, json_mode):
 @instance.command("start")
 @click.argument("snapshot_id")
 @click.option(
+    "--ttl-seconds", type=int, help="Time to live in seconds for the instance"
+)
+@click.option(
+    "--ttl-action", type=click.Choice(["stop", "pause"]), help="Action when TTL expires"
+)
+@click.option(
     "--json/--no-json", "json_mode", default=False, help="Output in JSON format"
 )
-def start_instance(snapshot_id, json_mode):
+def start_instance(snapshot_id, ttl_seconds, ttl_action, json_mode):
     """Start a new instance from a snapshot"""
-    instance = client.instances.start(snapshot_id=snapshot_id)
+    instance = client.instances.start(snapshot_id=snapshot_id, ttl_seconds=ttl_seconds, ttl_action=ttl_action)
     if json_mode:
         click.echo(format_json(instance))
     else:

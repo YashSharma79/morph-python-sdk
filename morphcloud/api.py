@@ -207,7 +207,11 @@ class SnapshotAPI:
         digest: typing.Optional[str] = None,
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> typing.List[Snapshot]:
-        """List all snapshots available to the user."""
+        """List all snapshots available to the user.
+
+        Parameters:
+            digest: Optional digest to filter snapshots by.
+            metadata: Optional metadata to filter snapshots by."""
         params = {}
         if digest is not None:
             params["digest"] = digest
@@ -225,7 +229,11 @@ class SnapshotAPI:
         digest: typing.Optional[str] = None,
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> typing.List[Snapshot]:
-        """List all snapshots available to the user."""
+        """List all snapshots available to the user.
+
+        Parameters:
+            digest: Optional digest to filter snapshots by.
+            metadata: Optional metadata to filter snapshots by."""
         params = {}
         if digest is not None:
             params["digest"] = digest
@@ -247,7 +255,15 @@ class SnapshotAPI:
         digest: typing.Optional[str] = None,
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
-        """Create a new snapshot from a base image and a machine configuration."""
+        """Create a new snapshot from a base image and a machine configuration.
+
+        Parameters:
+            image_id: The ID of the base image to use.
+            vcpus: The number of virtual CPUs for the snapshot.
+            memory: The amount of memory (in MB) for the snapshot.
+            disk_size: The size of the snapshot (in MB).
+            digest: Optional digest for the snapshot. If provided, it will be used to identify the snapshot. If a snapshot with the same digest already exists, it will be returned instead of creating a new one.
+            metadata: Optional metadata to attach to the snapshot."""
         body = {}
         if image_id is not None:
             body["image_id"] = image_id
@@ -273,7 +289,15 @@ class SnapshotAPI:
         digest: typing.Optional[str] = None,
         metadata: typing.Optional[typing.Dict[str, str]] = None,
     ) -> Snapshot:
-        """Create a new snapshot from a base image and a machine configuration."""
+        """Create a new snapshot from a base image and a machine configuration.
+
+        Parameters:
+            image_id: The ID of the base image to use.
+            vcpus: The number of virtual CPUs for the snapshot.
+            memory: The amount of memory (in MB) for the snapshot.
+            disk_size: The size of the snapshot (in MB).
+            digest: Optional digest for the snapshot. If provided, it will be used to identify the snapshot. If a snapshot with the same digest already exists, it will be returned instead of creating a new one.
+            metadata: Optional metadata to attach to the snapshot."""
         body = {}
         if image_id is not None:
             body["image_id"] = image_id
@@ -563,7 +587,10 @@ class InstanceAPI(BaseAPI):
     def list(
         self, metadata: typing.Optional[typing.Dict[str, str]] = None
     ) -> typing.List[Instance]:
-        """List all instances available to the user."""
+        """List all instances available to the user.
+
+        Parameters:
+            metadata: Optional metadata to filter instances by."""
         response = self._client._http_client.get(
             "/instance",
             params={f"metadata[{k}]": v for k, v in (metadata or {}).items()},
@@ -576,7 +603,10 @@ class InstanceAPI(BaseAPI):
     async def alist(
         self, metadata: typing.Optional[typing.Dict[str, str]] = None
     ) -> typing.List[Instance]:
-        """List all instances available to the user."""
+        """List all instances available to the user.
+
+        Parameters:
+            metadata: Optional metadata to filter instances by."""
         response = await self._client._async_http_client.get(
             "/instance",
             params={f"metadata[{k}]": v for k, v in (metadata or {}).items()},
@@ -586,19 +616,34 @@ class InstanceAPI(BaseAPI):
             for instance in response.json()["data"]
         ]
 
-    def start(self, snapshot_id: str) -> Instance:
-        """Create a new instance from a snapshot."""
+    def start(self, snapshot_id: str, metadata: typing.Optional[typing.Dict[str, str]] = None, ttl_seconds: typing.Optional[int] = None, ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None) -> Instance:
+        """Create a new instance from a snapshot.
+
+        Parameters:
+            snapshot_id: The ID of the snapshot to start from.
+            metadata: Optional metadata to attach to the instance.
+            ttl_seconds: Optional time-to-live in seconds for the instance.
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause"."""
         response = self._client._http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
+            json={"metadata": metadata, "ttl_seconds": ttl_seconds, "ttl_action": ttl_action},
         )
         return Instance.model_validate(response.json())._set_api(self)
 
-    async def astart(self, snapshot_id: str) -> Instance:
-        """Create a new instance from a snapshot."""
+    async def astart(self, snapshot_id: str, metadata: typing.Optional[typing.Dict[str, str]] = None, ttl_seconds: typing.Optional[int] = None, ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None) -> Instance:
+        """Create a new instance from a snapshot.
+
+        Parameters:
+            snapshot_id: The ID of the snapshot to start from.
+            metadata: Optional metadata to attach to the instance.
+            ttl_seconds: Optional time-to-live in seconds for the instance.
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause"."""
+
         response = await self._client._async_http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
+            json={"metadata": metadata, "ttl_seconds": ttl_seconds, "ttl_action": ttl_action},
         )
         return Instance.model_validate(response.json())._set_api(self)
 
@@ -940,6 +985,7 @@ class Instance(BaseModel):
         return client
 
     def ssh(self):
+        """Return an SSHClient instance for this instance"""
         from morphcloud._ssh import SSHClient  # as in your snippet
 
         return SSHClient(self.ssh_connect())
