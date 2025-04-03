@@ -66,6 +66,9 @@ def get_client():
             click.echo(
                 "Please set it with: export MORPH_API_KEY=your_api_key", err=True
             )
+            click.echo(
+                "https://cloud.morph.so/web/keys", err=True
+            )            
             sys.exit(1)
         raise
 
