@@ -1,4 +1,3 @@
-
 from typing import Any
 
 
@@ -47,11 +46,11 @@ def get_iframe_object_from_instance_id(
     )
 
 
-
 try:
     from enum import StrEnum
 except ImportError:
     from enum import Enum
+
     class StrEnum(str, Enum):
         """String enumeration with nicer repr and comparison behavior."""
 
@@ -60,4 +59,3 @@ except ImportError:
 
         def __str__(self):
             return self.value
-

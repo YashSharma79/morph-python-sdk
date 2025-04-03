@@ -180,6 +180,7 @@ class Image(BaseModel):
         self._api = api
         return self
 
+
 class SnapshotStatus(StrEnum):
     PENDING = "pending"
     READY = "ready"
@@ -616,34 +617,56 @@ class InstanceAPI(BaseAPI):
             for instance in response.json()["data"]
         ]
 
-    def start(self, snapshot_id: str, metadata: typing.Optional[typing.Dict[str, str]] = None, ttl_seconds: typing.Optional[int] = None, ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None) -> Instance:
+    def start(
+        self,
+        snapshot_id: str,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+        ttl_seconds: typing.Optional[int] = None,
+        ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None,
+    ) -> Instance:
         """Create a new instance from a snapshot.
 
         Parameters:
             snapshot_id: The ID of the snapshot to start from.
             metadata: Optional metadata to attach to the instance.
             ttl_seconds: Optional time-to-live in seconds for the instance.
-            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause"."""
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+        """
         response = self._client._http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
-            json={"metadata": metadata, "ttl_seconds": ttl_seconds, "ttl_action": ttl_action},
+            json={
+                "metadata": metadata,
+                "ttl_seconds": ttl_seconds,
+                "ttl_action": ttl_action,
+            },
         )
         return Instance.model_validate(response.json())._set_api(self)
 
-    async def astart(self, snapshot_id: str, metadata: typing.Optional[typing.Dict[str, str]] = None, ttl_seconds: typing.Optional[int] = None, ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None) -> Instance:
+    async def astart(
+        self,
+        snapshot_id: str,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+        ttl_seconds: typing.Optional[int] = None,
+        ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None,
+    ) -> Instance:
         """Create a new instance from a snapshot.
 
         Parameters:
             snapshot_id: The ID of the snapshot to start from.
             metadata: Optional metadata to attach to the instance.
             ttl_seconds: Optional time-to-live in seconds for the instance.
-            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause"."""
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+        """
 
         response = await self._client._async_http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
-            json={"metadata": metadata, "ttl_seconds": ttl_seconds, "ttl_action": ttl_action},
+            json={
+                "metadata": metadata,
+                "ttl_seconds": ttl_seconds,
+                "ttl_action": ttl_action,
+            },
         )
         return Instance.model_validate(response.json())._set_api(self)
 

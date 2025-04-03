@@ -50,8 +50,24 @@ def unix_timestamp_to_datetime(timestamp):
     return datetime.datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Create a global client instance
-client = api.MorphCloudClient()
+# Create a function to get the client on demand
+def get_client():
+    """Get or create a MorphCloudClient instance.
+
+    Raises a user-friendly error if the API key is missing.
+    """
+    try:
+        return api.MorphCloudClient()
+    except ValueError as e:
+        if "API key must be provided" in str(e):
+            click.echo(
+                "Error: MORPH_API_KEY environment variable is not set.", err=True
+            )
+            click.echo(
+                "Please set it with: export MORPH_API_KEY=your_api_key", err=True
+            )
+            sys.exit(1)
+        raise
 
 
 @click.group()
@@ -73,24 +89,38 @@ def image():
 )
 def list_image(json_mode):
     """List all available images"""
-    images = client.images.list()
-    if json_mode:
-        for image in images:
-            click.echo(format_json(image))
+    client = get_client()
+    try:
+        images = client.images.list()
+        if json_mode:
+            for image in images:
+                click.echo(format_json(image))
+        else:
+            headers = ["ID", "Name", "Description", "Disk Size (MB)", "Created At"]
+            rows = []
+            for image in images:
+                rows.append(
+                    [
+                        image.id,
+                        image.name,
+                        image.description,
+                        image.disk_size,
+                        unix_timestamp_to_datetime(image.created),
+                    ]
+                )
+            print_docker_style_table(headers, rows)
+    except Exception as e:
+        handle_api_error(e)
+
+
+def handle_api_error(error):
+    """Handle API errors with user-friendly messages"""
+    if isinstance(error, api.ApiError):
+        click.echo(f"API Error (Status: {error.status_code})", err=True)
+        click.echo(f"Response: {error.response_body}", err=True)
     else:
-        headers = ["ID", "Name", "Description", "Disk Size (MB)", "Created At"]
-        rows = []
-        for image in images:
-            rows.append(
-                [
-                    image.id,
-                    image.name,
-                    image.description,
-                    image.disk_size,
-                    unix_timestamp_to_datetime(image.created),
-                ]
-            )
-        print_docker_style_table(headers, rows)
+        click.echo(f"Error: {str(error)}", err=True)
+    sys.exit(1)
 
 
 # Snapshots
@@ -112,38 +142,42 @@ def snapshot():
 )
 def list_snapshots(metadata, json_mode):
     """List all snapshots"""
-    metadata_dict = {}
-    for meta in metadata:
-        key, value = meta.split("=", 1)
-        metadata_dict[key] = value
-    snapshots = client.snapshots.list(metadata=metadata_dict)
-    if json_mode:
-        for snapshot in snapshots:
-            click.echo(format_json(snapshot))
-    else:
-        headers = [
-            "ID",
-            "Created At",
-            "Status",
-            "VCPUs",
-            "Memory (MB)",
-            "Disk Size (MB)",
-            "Image ID",
-        ]
-        rows = []
-        for snapshot in snapshots:
-            rows.append(
-                [
-                    snapshot.id,
-                    unix_timestamp_to_datetime(snapshot.created),
-                    snapshot.status,
-                    snapshot.spec.vcpus,
-                    snapshot.spec.memory,
-                    snapshot.spec.disk_size,
-                    snapshot.refs.image_id,
-                ]
-            )
-        print_docker_style_table(headers, rows)
+    client = get_client()
+    try:
+        metadata_dict = {}
+        for meta in metadata:
+            key, value = meta.split("=", 1)
+            metadata_dict[key] = value
+        snapshots = client.snapshots.list(metadata=metadata_dict)
+        if json_mode:
+            for snapshot in snapshots:
+                click.echo(format_json(snapshot))
+        else:
+            headers = [
+                "ID",
+                "Created At",
+                "Status",
+                "VCPUs",
+                "Memory (MB)",
+                "Disk Size (MB)",
+                "Image ID",
+            ]
+            rows = []
+            for snapshot in snapshots:
+                rows.append(
+                    [
+                        snapshot.id,
+                        unix_timestamp_to_datetime(snapshot.created),
+                        snapshot.status,
+                        snapshot.spec.vcpus,
+                        snapshot.spec.memory,
+                        snapshot.spec.disk_size,
+                        snapshot.refs.image_id,
+                    ]
+                )
+            print_docker_style_table(headers, rows)
+    except Exception as e:
+        handle_api_error(e)
 
 
 @snapshot.command("create")
@@ -157,34 +191,46 @@ def list_snapshots(metadata, json_mode):
 )
 def create_snapshot(image_id, vcpus, memory, disk_size, digest, json_mode):
     """Create a new snapshot"""
-    snapshot = client.snapshots.create(
-        image_id=image_id,
-        vcpus=vcpus,
-        memory=memory,
-        disk_size=disk_size,
-        digest=digest,
-    )
-    if json_mode:
-        click.echo(format_json(snapshot))
-    else:
-        click.echo(f"{snapshot.id}")
+    client = get_client()
+    try:
+        snapshot = client.snapshots.create(
+            image_id=image_id,
+            vcpus=vcpus,
+            memory=memory,
+            disk_size=disk_size,
+            digest=digest,
+        )
+        if json_mode:
+            click.echo(format_json(snapshot))
+        else:
+            click.echo(f"{snapshot.id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @snapshot.command("delete")
 @click.argument("snapshot_id")
 def delete_snapshot(snapshot_id):
     """Delete a snapshot"""
-    snapshot = client.snapshots.get(snapshot_id)
-    snapshot.delete()
-    click.echo(f"Deleted snapshot {snapshot_id}")
+    client = get_client()
+    try:
+        snapshot = client.snapshots.get(snapshot_id)
+        snapshot.delete()
+        click.echo(f"Deleted snapshot {snapshot_id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @snapshot.command("get")
 @click.argument("snapshot_id")
 def get_snapshot(snapshot_id):
     """Get snapshot details"""
-    snapshot = client.snapshots.get(snapshot_id)
-    click.echo(format_json(snapshot))
+    client = get_client()
+    try:
+        snapshot = client.snapshots.get(snapshot_id)
+        click.echo(format_json(snapshot))
+    except Exception as e:
+        handle_api_error(e)
 
 
 @snapshot.command("set-metadata")
@@ -197,14 +243,18 @@ def set_snapshot_metadata(snapshot_id, metadata):
 
         morph snapshot set-metadata <id> key1=value "key2=with spaces"
     """
-    snapshot = client.snapshots.get(snapshot_id)
-    metadata_dict = {}
-    for meta in metadata:
-        key, value = meta.split("=", 1)
-        metadata_dict[key] = value
-    snapshot.set_metadata(metadata_dict)
-    snapshot._refresh()
-    click.echo(format_json(snapshot))
+    client = get_client()
+    try:
+        snapshot = client.snapshots.get(snapshot_id)
+        metadata_dict = {}
+        for meta in metadata:
+            key, value = meta.split("=", 1)
+            metadata_dict[key] = value
+        snapshot.set_metadata(metadata_dict)
+        snapshot._refresh()
+        click.echo(format_json(snapshot))
+    except Exception as e:
+        handle_api_error(e)
 
 
 # Instances
@@ -286,12 +336,13 @@ def sync_files(source, destination, delete, dry_run, verbose):
     # Get the instance
     instance_id = source_instance or dest_instance
     assert instance_id is not None
-    instance = client.instances.get(instance_id)
 
+    client = get_client()
     try:
+        instance = client.instances.get(instance_id)
         instance.sync(source, destination, delete=delete, dry_run=dry_run)
     except Exception as e:
-        raise click.ClickException(str(e))
+        handle_api_error(e)
 
 
 @instance.command("list")
@@ -306,43 +357,47 @@ def sync_files(source, destination, delete, dry_run, verbose):
 )
 def list_instances(metadata, json_mode):
     """List all instances"""
-    metadata_dict = {}
-    for meta in metadata:
-        key, value = meta.split("=", 1)
-        metadata_dict[key] = value
-    instances = client.instances.list(metadata=metadata_dict)
-    if json_mode:
-        for instance in instances:
-            click.echo(format_json(instance))
-    else:
-        headers = [
-            "ID",
-            "Snapshot ID",
-            "Created At",
-            "Status",
-            "VCPUs",
-            "Memory (MB)",
-            "Disk Size (MB)",
-            "Http Services",
-        ]
-        rows = []
-        for instance in instances:
-            rows.append(
-                [
-                    instance.id,
-                    instance.refs.snapshot_id,
-                    unix_timestamp_to_datetime(instance.created),
-                    instance.status,
-                    instance.spec.vcpus,
-                    instance.spec.memory,
-                    instance.spec.disk_size,
-                    ", ".join(
-                        f"{svc.name}:{svc.port}"
-                        for svc in instance.networking.http_services
-                    ),
-                ]
-            )
-        print_docker_style_table(headers, rows)
+    client = get_client()
+    try:
+        metadata_dict = {}
+        for meta in metadata:
+            key, value = meta.split("=", 1)
+            metadata_dict[key] = value
+        instances = client.instances.list(metadata=metadata_dict)
+        if json_mode:
+            for instance in instances:
+                click.echo(format_json(instance))
+        else:
+            headers = [
+                "ID",
+                "Snapshot ID",
+                "Created At",
+                "Status",
+                "VCPUs",
+                "Memory (MB)",
+                "Disk Size (MB)",
+                "Http Services",
+            ]
+            rows = []
+            for instance in instances:
+                rows.append(
+                    [
+                        instance.id,
+                        instance.refs.snapshot_id,
+                        unix_timestamp_to_datetime(instance.created),
+                        instance.status,
+                        instance.spec.vcpus,
+                        instance.spec.memory,
+                        instance.spec.disk_size,
+                        ", ".join(
+                            f"{svc.name}:{svc.port}"
+                            for svc in instance.networking.http_services
+                        ),
+                    ]
+                )
+            print_docker_style_table(headers, rows)
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("start")
@@ -358,45 +413,67 @@ def list_instances(metadata, json_mode):
 )
 def start_instance(snapshot_id, ttl_seconds, ttl_action, json_mode):
     """Start a new instance from a snapshot"""
-    instance = client.instances.start(snapshot_id=snapshot_id, ttl_seconds=ttl_seconds, ttl_action=ttl_action)
-    if json_mode:
-        click.echo(format_json(instance))
-    else:
-        click.echo(f"{instance.id}")
+    client = get_client()
+    try:
+        instance = client.instances.start(
+            snapshot_id=snapshot_id, ttl_seconds=ttl_seconds, ttl_action=ttl_action
+        )
+        if json_mode:
+            click.echo(format_json(instance))
+        else:
+            click.echo(f"{instance.id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("stop")
 @click.argument("instance_id")
 def stop_instance(instance_id):
     """Stop an instance"""
-    client.instances.stop(instance_id)
-    click.echo(f"{instance_id}")
+    client = get_client()
+    try:
+        client.instances.stop(instance_id)
+        click.echo(f"{instance_id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("pause")
 @click.argument("instance_id")
 def pause_instance(instance_id):
     """Pause an instance"""
-    instance = client.instances.get(instance_id)
-    instance.pause()
-    click.echo(f"{instance_id}")
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        instance.pause()
+        click.echo(f"{instance_id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("resume")
 @click.argument("instance_id")
 def resume_instance(instance_id):
     """Resume a paused instance"""
-    instance = client.instances.get(instance_id)
-    instance.resume()
-    click.echo(f"{instance_id}")
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        instance.resume()
+        click.echo(f"{instance_id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("get")
 @click.argument("instance_id")
 def get_instance(instance_id):
     """Get instance details"""
-    instance = client.instances.get(instance_id)
-    click.echo(format_json(instance))
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        click.echo(format_json(instance))
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("snapshot")
@@ -406,12 +483,16 @@ def get_instance(instance_id):
 )
 def snapshot_instance(instance_id, json_mode):
     """Create a snapshot from an instance"""
-    instance = client.instances.get(instance_id)
-    snapshot = instance.snapshot()
-    if json_mode:
-        click.echo(format_json(snapshot))
-    else:
-        click.echo(f"{snapshot.id}")
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        snapshot = instance.snapshot()
+        if json_mode:
+            click.echo(format_json(snapshot))
+        else:
+            click.echo(f"{snapshot.id}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("branch")
@@ -419,11 +500,15 @@ def snapshot_instance(instance_id, json_mode):
 @click.option("--count", type=int, default=1, help="Number of clones to create")
 def branch_instance(instance_id, count):
     """Clone an instance"""
-    instance = client.instances.get(instance_id)
-    snapshot, clones = instance.branch(count)
-    click.echo(format_json(snapshot))
-    for clone in clones:
-        click.echo(format_json(clone))
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        snapshot, clones = instance.branch(count)
+        click.echo(format_json(snapshot))
+        for clone in clones:
+            click.echo(format_json(clone))
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("expose-http")
@@ -440,12 +525,16 @@ def expose_http_service(instance_id, name, port, auth_mode):
     When using --auth-mode=api_key, the service will require API key authentication
     via Authorization: Bearer MORPH_API_KEY in HTTP headers.
     """
-    instance = client.instances.get(instance_id)
-    instance.expose_http_service(name, port, auth_mode)
-    url = f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so"
-    click.echo(url)
-    if auth_mode == "api_key":
-        click.echo("API key authentication required for this service")
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        instance.expose_http_service(name, port, auth_mode)
+        url = f"https://{name}-{instance_id.replace('_', '-')}.http.cloud.morph.so"
+        click.echo(url)
+        if auth_mode == "api_key":
+            click.echo("API key authentication required for this service")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("hide-http")
@@ -453,9 +542,13 @@ def expose_http_service(instance_id, name, port, auth_mode):
 @click.argument("name")
 def hide_http_service(instance_id, name):
     """Hide an exposed HTTP service"""
-    instance = client.instances.get(instance_id)
-    instance.hide_http_service(name)
-    click.echo(f"Delete HTTP service {name}")
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        instance.hide_http_service(name)
+        click.echo(f"Delete HTTP service {name}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("exec")
@@ -463,14 +556,18 @@ def hide_http_service(instance_id, name):
 @click.argument("command", nargs=-1)
 def exec_command(instance_id, command):
     """Execute a command on an instance"""
-    instance = client.instances.get(instance_id)
-    result = instance.exec(list(command))
-    click.echo(f"Exit code: {result.exit_code}")
-    if result.stdout:
-        click.echo(f"Stdout:\n{result.stdout}")
-    if result.stderr:
-        click.echo(f"Stderr:\n{result.stderr}", err=True)
-    sys.exit(result.exit_code)
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        result = instance.exec(list(command))
+        click.echo(f"Exit code: {result.exit_code}")
+        if result.stdout:
+            click.echo(f"Stdout:\n{result.stdout}")
+        if result.stderr:
+            click.echo(f"Stderr:\n{result.stderr}", err=True)
+        sys.exit(result.exit_code)
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("set-metadata")
@@ -483,14 +580,18 @@ def set_instance_metadata(instance_id, metadata):
 
         morph instance set-metadata <id> key1=value "key2=with spaces"
     """
-    instance = client.instances.get(instance_id)
-    metadata_dict = {}
-    for meta in metadata:
-        key, value = meta.split("=", 1)
-        metadata_dict[key] = value
-    instance.set_metadata(metadata_dict)
-    instance._refresh()
-    click.echo(format_json(instance))
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        metadata_dict = {}
+        for meta in metadata:
+            key, value = meta.split("=", 1)
+            metadata_dict[key] = value
+        instance.set_metadata(metadata_dict)
+        instance._refresh()
+        click.echo(format_json(instance))
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("ssh")
@@ -500,35 +601,39 @@ def set_instance_metadata(instance_id, metadata):
 @click.argument("command", nargs=-1, required=False, type=click.UNPROCESSED)
 def ssh_portal(instance_id, rm, snapshot, command):
     """Start an SSH session to an instance"""
-    instance = client.instances.get(instance_id)
-    import sys
-
-    non_interactive = not sys.stdin.isatty()
-
-    instance.wait_until_ready()
-
+    client = get_client()
     try:
-        with instance.ssh() as ssh:
-            cmd_str = " ".join(command) if command else None
-            if non_interactive:
-                assert (
-                    cmd_str is not None
-                ), "Command must be provided in non-interactive mode"
-                result = ssh.run(cmd_str)
-                if result.stdout:
-                    click.echo(f"{result.stdout}")
-                if result.stderr:
-                    click.echo(f"{result.stderr}", err=True)
-                sys.exit(result.exit_code)
-            else:
-                sys.exit(ssh.interactive_shell(command=cmd_str))
-    finally:
-        if snapshot:
-            snapshot = instance.snapshot()
-            click.echo(f"Created snapshot:")
-            click.echo(f"{snapshot.id}")
-        if rm:
-            instance.stop()
+        instance = client.instances.get(instance_id)
+        import sys
+
+        non_interactive = not sys.stdin.isatty()
+
+        instance.wait_until_ready()
+
+        try:
+            with instance.ssh() as ssh:
+                cmd_str = " ".join(command) if command else None
+                if non_interactive:
+                    assert (
+                        cmd_str is not None
+                    ), "Command must be provided in non-interactive mode"
+                    result = ssh.run(cmd_str)
+                    if result.stdout:
+                        click.echo(f"{result.stdout}")
+                    if result.stderr:
+                        click.echo(f"{result.stderr}", err=True)
+                    sys.exit(result.exit_code)
+                else:
+                    sys.exit(ssh.interactive_shell(command=cmd_str))
+        finally:
+            if snapshot:
+                snapshot = instance.snapshot()
+                click.echo(f"Created snapshot:")
+                click.echo(f"{snapshot.id}")
+            if rm:
+                instance.stop()
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("port-forward")
@@ -540,14 +645,18 @@ def port_forward(instance_id, remote_port, local_port):
     if not local_port:
         local_port = remote_port
 
-    instance = client.instances.get(instance_id)
-    with (
-        instance.ssh() as ssh,
-        ssh.tunnel(local_port=local_port, remote_port=remote_port) as tunnel,
-    ):
-        click.echo(f"Local server listening on localhost:{local_port}")
-        click.echo(f"Forwarding to {remote_port}")
-        tunnel.wait()
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        with (
+            instance.ssh() as ssh,
+            ssh.tunnel(local_port=local_port, remote_port=remote_port) as tunnel,
+        ):
+            click.echo(f"Local server listening on localhost:{local_port}")
+            click.echo(f"Forwarding to {remote_port}")
+            tunnel.wait()
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("copy")
@@ -677,53 +786,59 @@ def copy_files(source, destination, recursive):
     # Get the instance
     instance_id = source_instance or dest_instance
     assert instance_id is not None
-    instance = client.instances.get(instance_id)
 
-    with instance.ssh() as ssh:
-        sftp = ssh._client.open_sftp()
-        try:
-            if source_instance:
-                # Downloading from instance
-                click.echo(
-                    f"Downloading from {instance_id}:{source_path} to {dest_path}"
-                )
-                if recursive:
-                    copy_recursive_from_remote(sftp, source_path, dest_path)
-                else:
-                    dest_path = pathlib.Path(dest_path)
-                    if dest_path.is_dir():
-                        dest_path = dest_path / os.path.basename(source_path)
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    sftp.get(source_path, str(dest_path))
-            else:
-                # Uploading to instance
-                # Handle destination path
-                if not dest_path:
-                    # Empty destination, use source filename
-                    dest_path = os.path.basename(source_path)
-                elif dest_path.endswith("/") or is_remote_dir(sftp, dest_path):
-                    # Destination is a directory (either by '/' or by checking)
-                    dest_path = os.path.join(
-                        dest_path.rstrip("/"), os.path.basename(source_path)
+    client = get_client()
+    try:
+        instance = client.instances.get(instance_id)
+        with instance.ssh() as ssh:
+            sftp = ssh._client.open_sftp()
+            try:
+                if source_instance:
+                    # Downloading from instance
+                    click.echo(
+                        f"Downloading from {instance_id}:{source_path} to {dest_path}"
                     )
-
-                click.echo(f"Uploading from {source_path} to {instance_id}:{dest_path}")
-                if recursive:
-                    copy_recursive_to_remote(sftp, source_path, dest_path)
+                    if recursive:
+                        copy_recursive_from_remote(sftp, source_path, dest_path)
+                    else:
+                        dest_path = pathlib.Path(dest_path)
+                        if dest_path.is_dir():
+                            dest_path = dest_path / os.path.basename(source_path)
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        sftp.get(source_path, str(dest_path))
                 else:
-                    try:
-                        sftp.put(source_path, dest_path)
-                    except IOError:
-                        # Try creating parent directory if it doesn't exist
-                        parent_dir = os.path.dirname(dest_path)
-                        if parent_dir:
-                            try:
-                                sftp.mkdir(parent_dir)
-                            except IOError:
-                                sftp.makedirs(parent_dir)
-                        sftp.put(source_path, dest_path)
-        finally:
-            sftp.close()
+                    # Uploading to instance
+                    # Handle destination path
+                    if not dest_path:
+                        # Empty destination, use source filename
+                        dest_path = os.path.basename(source_path)
+                    elif dest_path.endswith("/") or is_remote_dir(sftp, dest_path):
+                        # Destination is a directory (either by '/' or by checking)
+                        dest_path = os.path.join(
+                            dest_path.rstrip("/"), os.path.basename(source_path)
+                        )
+
+                    click.echo(
+                        f"Uploading from {source_path} to {instance_id}:{dest_path}"
+                    )
+                    if recursive:
+                        copy_recursive_to_remote(sftp, source_path, dest_path)
+                    else:
+                        try:
+                            sftp.put(source_path, dest_path)
+                        except IOError:
+                            # Try creating parent directory if it doesn't exist
+                            parent_dir = os.path.dirname(dest_path)
+                            if parent_dir:
+                                try:
+                                    sftp.mkdir(parent_dir)
+                                except IOError:
+                                    sftp.makedirs(parent_dir)
+                            sftp.put(source_path, dest_path)
+            finally:
+                sftp.close()
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("chat")
@@ -733,11 +848,15 @@ def chat(instance_id, instructions):
     """Start an interactive chat session with an instance"""
     if instructions:
         print("Instructions:", instructions)
-    from morphcloud._llm import agent_loop
 
-    instance = client.instances.get(instance_id)
+    client = get_client()
+    try:
+        from morphcloud._llm import agent_loop
 
-    agent_loop(instance)
+        instance = client.instances.get(instance_id)
+        agent_loop(instance)
+    except Exception as e:
+        handle_api_error(e)
 
 
 if __name__ == "__main__":
