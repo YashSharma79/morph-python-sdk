@@ -396,13 +396,162 @@ class Snapshot(BaseModel):
         hasher.update(effect_identifier.encode("utf-8"))
         return hasher.hexdigest()
 
+    # def _run_command_effect(
+    #     self, instance: Instance, command: str, background: bool, get_pty: bool
+    # ) -> None:
+    #     """
+    #     Executes a shell command on the given instance, streaming output via Rich.
+    #     If background is True, the command is run without waiting for completion.
+    #     """
+    #     ssh_client = instance.ssh_connect()
+    #     try:
+    #         channel = ssh_client.get_transport().open_session()
+    #         if get_pty:
+    #             channel.get_pty(width=120, height=40)
+    #         channel.exec_command(command)
+
+    #         if background:
+    #             console.print(
+    #                 f"[blue]Command is running in the background:[/blue] {command}"
+    #             )
+    #             channel.close()
+    #             return
+
+    #         console.print(
+    #             f"[bold blue]🔧 Running command (foreground):[/bold blue] [yellow]{command}[/yellow]"
+    #         )
+    #         output_buffer = ""
+    #         panel = Panel(
+    #             output_buffer or "[dim]No output yet...[/dim]",
+    #             title="📄 Command Output",
+    #             border_style="cyan",
+    #         )
+    #         with Live(panel, console=console, refresh_per_second=4) as live:
+    #             while not channel.exit_status_ready():
+    #                 if channel.recv_ready():
+    #                     data = channel.recv(1024).decode("utf-8", errors="replace")
+    #                     if data:
+    #                         output_buffer += data
+    #                         live.update(
+    #                             Panel(
+    #                                 output_buffer,
+    #                                 title="📄 Command Output",
+    #                                 border_style="cyan",
+    #                             )
+    #                         )
+    #                 time.sleep(0.2)
+    #             while channel.recv_ready():
+    #                 data = channel.recv(1024).decode("utf-8", errors="replace")
+    #                 if data:
+    #                     output_buffer += data
+    #                     live.update(
+    #                         Panel(
+    #                             output_buffer,
+    #                             title="📄 Command Output",
+    #                             border_style="cyan",
+    #                         )
+    #                     )
+    #             exit_code = channel.recv_exit_status()
+    #             if exit_code != 0:
+    #                 console.print(
+    #                     f"[bold red]⚠️ Warning:[/bold red] Command exited with code [red]{exit_code}[/red]"
+    #                 )
+    #         channel.close()
+    #     finally:
+    #         ssh_client.close()
+
+    # def _run_command_effect(
+    #     self, instance: Instance, command: str, background: bool, get_pty: bool
+    # ) -> None:
+    #     """
+    #     Executes a shell command on the given instance.
+    #     If background is True, the command is run without waiting for completion.
+    #     Thread-safe implementation for use in ThreadPool environments.
+    #     """
+    #     import threading
+
+    #     # Create a thread ID for logging
+    #     thread_id = threading.get_ident()
+
+    #     ssh_client = instance.ssh_connect()
+    #     try:
+    #         channel = ssh_client.get_transport().open_session()
+    #         if get_pty:
+    #             channel.get_pty(width=120, height=40)
+    #         channel.exec_command(command)
+
+    #         if background:
+    #             console.print(
+    #                 f"[blue]Command is running in the background:[/blue] {command}"
+    #             )
+    #             channel.close()
+    #             return
+
+    #         console.print(
+    #             f"[bold blue]🔧 Thread {thread_id}: Running command:[/bold blue] [yellow]{command}[/yellow]"
+    #         )
+
+    #         # Simple thread-safe approach: collect output and print at the end
+    #         output_buffer = ""
+
+    #         # Process the output
+    #         while not channel.exit_status_ready():
+    #             if channel.recv_ready():
+    #                 data = channel.recv(1024).decode("utf-8", errors="replace")
+    #                 if data:
+    #                     output_buffer += data
+    #                     # Print incremental updates with thread ID
+    #                     console.print(f"[dim]Thread {thread_id}:[/dim] {data}", end="")
+    #             time.sleep(0.2)
+
+    #         # Get any remaining output
+    #         while channel.recv_ready():
+    #             data = channel.recv(1024).decode("utf-8", errors="replace")
+    #             if data:
+    #                 output_buffer += data
+    #                 console.print(f"[dim]Thread {thread_id}:[/dim] {data}", end="")
+
+    #         # Check exit code
+    #         exit_code = channel.recv_exit_status()
+
+    #         # Print a summary of the command execution
+    #         if exit_code == 0:
+    #             console.print(
+    #                 f"[bold green]✅ Thread {thread_id}: Command completed successfully[/bold green]"
+    #             )
+    #         else:
+    #             console.print(
+    #                 f"[bold red]⚠️ Thread {thread_id}: Command exited with code [red]{exit_code}[/red][/bold red]"
+    #             )
+
+    #         channel.close()
+    #     finally:
+    #         ssh_client.close()    
+
     def _run_command_effect(
         self, instance: Instance, command: str, background: bool, get_pty: bool
     ) -> None:
         """
-        Executes a shell command on the given instance, streaming output via Rich.
+        Executes a shell command on the given instance, handling ANSI escape codes properly.
         If background is True, the command is run without waiting for completion.
+        Thread-safe implementation for use in ThreadPool environments.
         """
+        import threading
+        import re
+        from rich.text import Text
+        from rich.console import Console
+
+        # Create a thread ID for logging
+        thread_id = threading.get_ident()
+        thread_name = f"Thread-{thread_id}"
+
+        # Create console lock to prevent output interleaving
+        if not hasattr(console, '_output_lock'):
+            console._output_lock = threading.Lock()
+
+        # ANSI escape code regex pattern
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
         ssh_client = instance.ssh_connect()
         try:
             channel = ssh_client.get_transport().open_session()
@@ -411,55 +560,89 @@ class Snapshot(BaseModel):
             channel.exec_command(command)
 
             if background:
-                console.print(
-                    f"[blue]Command is running in the background:[/blue] {command}"
-                )
+                with console._output_lock:
+                    console.print(
+                        f"[blue]Command is running in the background:[/blue] {command}"
+                    )
                 channel.close()
                 return
 
-            console.print(
-                f"[bold blue]🔧 Running command (foreground):[/bold blue] [yellow]{command}[/yellow]"
-            )
-            output_buffer = ""
-            panel = Panel(
-                output_buffer or "[dim]No output yet...[/dim]",
-                title="📄 Command Output",
-                border_style="cyan",
-            )
-            with Live(panel, console=console, refresh_per_second=4) as live:
-                while not channel.exit_status_ready():
-                    if channel.recv_ready():
-                        data = channel.recv(1024).decode("utf-8", errors="replace")
-                        if data:
-                            output_buffer += data
-                            live.update(
-                                Panel(
-                                    output_buffer,
-                                    title="📄 Command Output",
-                                    border_style="cyan",
-                                )
-                            )
-                    time.sleep(0.2)
-                while channel.recv_ready():
+            with console._output_lock:
+                console.print(
+                    f"[bold blue]🔧 {thread_name}:[/bold blue] [yellow]{command}[/yellow]"
+                )
+
+            # Buffer for collecting line-by-line output
+            line_buffer = ""
+            full_output = ""
+
+            # Process the output
+            while not channel.exit_status_ready():
+                if channel.recv_ready():
                     data = channel.recv(1024).decode("utf-8", errors="replace")
                     if data:
-                        output_buffer += data
-                        live.update(
-                            Panel(
-                                output_buffer,
-                                title="📄 Command Output",
-                                border_style="cyan",
-                            )
-                        )
-                exit_code = channel.recv_exit_status()
-                if exit_code != 0:
+                        full_output += data
+
+                        # Process data line by line
+                        line_buffer += data
+                        lines = line_buffer.split('\n')
+
+                        # All complete lines can be printed
+                        if len(lines) > 1:
+                            with console._output_lock:
+                                for line in lines[:-1]:
+                                    if line:
+                                        # Strip ANSI escape codes when prefixing thread name
+                                        # but pass the original line (with ANSI codes) to console.print
+                                        clean_line = ansi_escape.sub('', line)
+                                        # Only add prefix if line isn't empty after stripping ANSI
+                                        if clean_line.strip():
+                                            # Use print directly to preserve ANSI codes
+                                            print(f"{thread_name}: {line}")
+                                        else:
+                                            print(line)
+
+                            # Keep the last partial line in the buffer
+                            line_buffer = lines[-1]
+                time.sleep(0.1)
+
+            # Get any remaining output
+            while channel.recv_ready():
+                data = channel.recv(1024).decode("utf-8", errors="replace")
+                if data:
+                    full_output += data
+                    line_buffer += data
+
+            # Print any remaining content in the line buffer
+            if line_buffer:
+                lines = line_buffer.split('\n')
+                with console._output_lock:
+                    for line in lines:
+                        if line:
+                            clean_line = ansi_escape.sub('', line)
+                            if clean_line.strip():
+                                print(f"{thread_name}: {line}")
+                            else:
+                                print(line)
+
+            # Check exit code
+            exit_code = channel.recv_exit_status()
+
+            # Print a summary of the command execution
+            with console._output_lock:
+                if exit_code == 0:
                     console.print(
-                        f"[bold red]⚠️ Warning:[/bold red] Command exited with code [red]{exit_code}[/red]"
+                        f"[bold green]✅ {thread_name}: Command completed successfully[/bold green]"
                     )
+                else:
+                    console.print(
+                        f"[bold red]⚠️ {thread_name}: Command exited with code [red]{exit_code}[/red][/bold red]"
+                    )
+
             channel.close()
         finally:
             ssh_client.close()
-
+        
     def _cache_effect(
         self,
         fn: typing.Callable[[Instance], None],
