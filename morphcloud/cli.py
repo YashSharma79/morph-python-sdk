@@ -1,19 +1,17 @@
 # Replace the imports at the top of morphcloud/cli.py
-import sys
-import json
-import importlib.metadata
 import datetime
+import importlib.metadata
+import json
+import sys
 import threading
 import time
 
 import click
-import requests
-from packaging import version
 import morphcloud.api as api
+import requests
 from morphcloud._utils import Spinner
-
 from morphcloud.api import copy_into_or_from_instance
-
+from packaging import version
 
 # ─────────────────────────────────────────────────────────────
 #  Version & CLI Setup

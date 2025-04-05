@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
+import hashlib
 import json
+import os
 import time
 import typing
-import asyncio
-
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 
 import httpx
-
+from morphcloud._utils import StrEnum
 from pydantic import BaseModel, Field, PrivateAttr
-from concurrent.futures import ThreadPoolExecutor
-import hashlib
-
 # Import Rich for fancy printing
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
-
-from morphcloud._utils import StrEnum
 
 # Global console instance
 console = Console()
@@ -30,6 +26,7 @@ console = Console()
 @lru_cache
 def _dummy_key():
     import io
+
     import paramiko
 
     key = paramiko.RSAKey.generate(1024)
@@ -406,10 +403,11 @@ class Snapshot(BaseModel):
         If background is True, the command is run without waiting for completion.
         Thread-safe implementation for use in ThreadPool environments.
         """
-        import threading
         import re
-        from rich.text import Text
+        import threading
+
         from rich.console import Console
+        from rich.text import Text
 
         # Create a thread ID for logging
         thread_id = threading.get_ident()
@@ -1218,8 +1216,9 @@ def copy_into_or_from_instance(
 
     import os
     import os.path
-    import stat
     import pathlib
+    import stat
+
     from tqdm import tqdm
 
     def sftp_exists(sftp, path):
