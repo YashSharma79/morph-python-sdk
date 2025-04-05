@@ -7,11 +7,12 @@ import threading
 import time
 
 import click
-import morphcloud.api as api
 import requests
+from packaging import version
+
+import morphcloud.api as api
 from morphcloud._utils import Spinner
 from morphcloud.api import copy_into_or_from_instance
-from packaging import version
 
 # ─────────────────────────────────────────────────────────────
 #  Version & CLI Setup
