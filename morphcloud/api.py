@@ -588,6 +588,12 @@ class Snapshot(BaseModel):
             get_pty=True,
         )
 
+    def exec(self, command: str) -> Snapshot:
+        return self.setup(command)
+
+    async def aexec(self, command: str) -> Snapshot:
+        return await self.asetup(command)
+
     async def asetup(self, command: str) -> Snapshot:
         return await asyncio.to_thread(self.setup, command)
 
