@@ -1,8 +1,11 @@
-.PHONY: deploy format check-undefined increment-version release trigger-workflow
+.PHONY: deploy format check-undefined increment-version release trigger-workflow get-version
 
 # Default Python interpreter
-PYTHON := python3
+PYTHON := uv run python
 GIT_FILES := $(shell git ls-files "./morphcloud")
+
+# Helper function to extract the version, defined once and reusable
+get_current_version = $(shell grep -oP 'version = "\K[^"]+' pyproject.toml)
 
 deploy: format check-undefined increment-version release trigger-workflow
 
@@ -32,10 +35,14 @@ increment-version:
 	@chmod +x ./scripts/increment_version.py
 	@./scripts/increment_version.py
 
+# Display the current version
+get-version:
+	@echo "Current version is: $(call get_current_version)"
 
+# Push to GitHub, create tag and GitHub release
 release:
 	@echo "Pushing to GitHub and creating release..."
-	$(eval VERSION=$(shell grep -oP 'version = "\K[^"]+' pyproject.toml))
+	$(eval VERSION := $(get_current_version))
 	@echo "Version to release: $(VERSION)"
 	git diff --quiet pyproject.toml || git add pyproject.toml
 	git diff --quiet --cached || git commit -m "Bump version to $(VERSION)"
@@ -60,11 +67,12 @@ release:
 		echo "GitHub CLI not found. Please create the release manually at:"; \
 		echo "https://github.com/$(shell git config --get remote.origin.url | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')/releases/new"; \
 	fi
-	@echo "Release created!"
 
+	@echo "Release created!"
 
 # Trigger the GitHub workflow manually on the tagged release
 trigger-workflow:
+	$(eval VERSION := $(get_current_version))
 	@echo "Triggering GitHub publish workflow for tag v$(VERSION)..."
 	@if command -v gh &> /dev/null; then \
 		echo "Running workflow publish.yaml on tag v$(VERSION)"; \
