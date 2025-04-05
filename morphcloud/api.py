@@ -597,17 +597,62 @@ class Snapshot(BaseModel):
     async def asetup(self, command: str) -> Snapshot:
         return await asyncio.to_thread(self.setup, command)
 
-    def _apply_single_command(self, command: str) -> Snapshot:
+    def upload(
+        self, local_path: str, remote_path: str, recursive: bool = False
+    ) -> Snapshot:
         """
-        Original synchronous helper kept for backward compatibility.
-        Internally delegates to _cache_effect so that an existing chain-hash
-        matching this command won't trigger a rebuild.
+        Chain-hash aware upload operation on this snapshot.
+        1. Checks if a matching effect (upload with these arguments) is already cached.
+        2. If not, spawns an instance, calls instance.upload(...), and snapshots the result.
         """
+
+        def _upload_effect(instance: Instance, local_path, remote_path, recursive):
+            instance.upload(local_path, remote_path, recursive=recursive)
+
         return self._cache_effect(
-            fn=self._run_command_effect,
-            command=command,
-            background=False,
-            get_pty=True,
+            fn=_upload_effect,
+            local_path=local_path,
+            remote_path=remote_path,
+            recursive=recursive,
+        )
+
+    def download(
+        self, remote_path: str, local_path: str, recursive: bool = False
+    ) -> Snapshot:
+        """
+        Chain-hash aware download operation on this snapshot.
+        1. Checks if a matching effect (download with these arguments) is already cached.
+        2. If not, spawns an instance, calls instance.download(...), and snapshots the result.
+        """
+
+        def _download_effect(instance: Instance, remote_path, local_path, recursive):
+            instance.download(remote_path, local_path, recursive=recursive)
+
+        return self._cache_effect(
+            fn=_download_effect,
+            remote_path=remote_path,
+            local_path=local_path,
+            recursive=recursive,
+        )
+
+    async def aupload(
+        self, local_path: str, remote_path: str, recursive: bool = False
+    ) -> Snapshot:
+        """
+        Asynchronously perform a chain-hash aware upload operation on this snapshot.
+        Internally calls the synchronous self.upload(...) in a background thread.
+        """
+        return await asyncio.to_thread(self.upload, local_path, remote_path, recursive)
+
+    async def adownload(
+        self, remote_path: str, local_path: str, recursive: bool = False
+    ) -> Snapshot:
+        """
+        Asynchronously perform a chain-hash aware download operation on this snapshot.
+        Internally calls the synchronous self.download(...) in a background thread.
+        """
+        return await asyncio.to_thread(
+            self.download, remote_path, local_path, recursive
         )
 
 
@@ -1070,6 +1115,64 @@ class Instance(BaseModel):
 
         return SSHClient(self.ssh_connect())
 
+    def upload(
+        self, local_path: str, remote_path: str, recursive: bool = False
+    ) -> None:
+        """
+        Synchronously upload a local file/directory to 'remote_path' on this instance.
+        If 'recursive' is True and local_path is a directory, upload that entire directory.
+        """
+        self.wait_until_ready()  # Ensure instance is READY for SFTP
+        copy_into_or_from_instance(
+            instance_obj=self,
+            local_path=local_path,
+            remote_path=remote_path,
+            uploading=True,
+            recursive=recursive,
+        )
+
+    def download(
+        self, remote_path: str, local_path: str, recursive: bool = False
+    ) -> None:
+        """
+        Synchronously download from 'remote_path' on this instance to a local path.
+        If 'recursive' is True, treat 'remote_path' as a directory and download everything inside it.
+        """
+        self.wait_until_ready()
+        copy_into_or_from_instance(
+            instance_obj=self,
+            local_path=local_path,
+            remote_path=remote_path,
+            uploading=False,
+            recursive=recursive,
+        )
+
+    async def aupload(
+        self, local_path: str, remote_path: str, recursive: bool = False
+    ) -> None:
+        """
+        Asynchronously upload a local file/directory to 'remote_path' on this instance.
+        If 'recursive' is True and local_path is a directory, upload that entire directory.
+        Runs in a background thread so it doesn't block the event loop.
+        """
+        await self.await_until_ready()
+        await asyncio.to_thread(
+            copy_into_or_from_instance, self, local_path, remote_path, True, recursive
+        )
+
+    async def adownload(
+        self, remote_path: str, local_path: str, recursive: bool = False
+    ) -> None:
+        """
+        Asynchronously download from 'remote_path' on this instance to a local path.
+        If 'recursive' is True, treat 'remote_path' as a directory and download everything inside it.
+        Runs in a background thread so it doesn't block the event loop.
+        """
+        await self.await_until_ready()
+        await asyncio.to_thread(
+            copy_into_or_from_instance, self, local_path, remote_path, False, recursive
+        )
+
     def __enter__(self):
         return self
 
@@ -1081,3 +1184,175 @@ class Instance(BaseModel):
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.astop()
+
+
+# Helper functions
+import click
+
+
+def copy_into_or_from_instance(
+    instance_obj,
+    local_path,
+    remote_path,
+    uploading,
+    recursive=False,
+    verbose=False,
+):
+    """
+    Generic helper to copy files/directories between 'local_path' and
+    'remote_path' on an already-ready instance via SFTP.
+
+    :param instance_obj: The instance on which to operate (must be READY).
+    :param local_path:   A string to a local file/directory path.
+    :param remote_path:  A string to a remote file/directory path on the instance.
+    :param uploading:    If True, copy local → remote; if False, copy remote → local.
+    :param recursive:    If True, copy entire directories recursively.
+    """
+
+    import os
+    import os.path
+    import stat
+    import pathlib
+    from tqdm import tqdm
+
+    def sftp_exists(sftp, path):
+        try:
+            sftp.stat(path)
+            return True
+        except FileNotFoundError:
+            return False
+        except IOError:
+            return False
+
+    def sftp_isdir(sftp, path):
+        try:
+            return stat.S_ISDIR(sftp.stat(path).st_mode)
+        except (FileNotFoundError, IOError):
+            return False
+
+    def sftp_makedirs(sftp, path):
+        dirs = []
+        while path not in ["/", "."]:
+            if sftp_exists(sftp, path):
+                if not sftp_isdir(sftp, path):
+                    raise IOError(f"Remote path {path} exists but is not a directory.")
+                break
+            dirs.append(path)
+            path = os.path.dirname(path)
+        for d in reversed(dirs):
+            sftp.mkdir(d)
+
+    def upload_directory(sftp, local_dir, remote_dir):
+        items = list(local_dir.rglob("*"))
+        total_files = len([i for i in items if i.is_file()])
+        with tqdm(
+            total=total_files, unit="file", desc=f"Uploading {local_dir.name}"
+        ) as pbar:
+            sftp_makedirs(sftp, remote_dir)
+            for item in items:
+                relative_path = item.relative_to(local_dir)
+                remote_item_path = os.path.join(
+                    remote_dir, *relative_path.parts
+                ).replace("\\", "/")
+                if item.is_dir():
+                    sftp_makedirs(sftp, remote_item_path)
+                else:
+                    sftp.put(str(item), remote_item_path)
+                    pbar.update(1)
+
+    def upload_file(sftp, local_file, remote_file):
+        parent = os.path.dirname(remote_file)
+        if parent and parent != ".":
+            sftp_makedirs(sftp, parent)
+        sftp.put(str(local_file), remote_file)
+
+    def download_directory(sftp, remote_dir, local_dir):
+        items_to_explore = [remote_dir]
+        files_to_download = []
+
+        # Gather items from the remote directory
+        while items_to_explore:
+            current_dir = items_to_explore.pop()
+            try:
+                for entry in sftp.listdir_attr(current_dir):
+                    full_remote = os.path.join(current_dir, entry.filename).replace(
+                        "\\", "/"
+                    )
+                    if stat.S_ISDIR(entry.st_mode):
+                        items_to_explore.append(full_remote)
+                    else:
+                        files_to_download.append(full_remote)
+            except FileNotFoundError:
+                click.echo(
+                    f"Warning: Remote directory {current_dir} not found.", err=True
+                )
+            except IOError as e:
+                click.echo(
+                    f"Warning: Error listing remote directory {current_dir}: {e}",
+                    err=True,
+                )
+
+        # Create local subdirs and download files
+        with tqdm(
+            total=len(files_to_download),
+            unit="file",
+            desc=f"Downloading {os.path.basename(remote_dir)}",
+        ) as pbar:
+            for file_path in files_to_download:
+                rel = os.path.relpath(file_path, remote_dir)
+                local_file = local_dir / rel
+                local_file.parent.mkdir(parents=True, exist_ok=True)
+                sftp.get(file_path, str(local_file))
+                pbar.update(1)
+
+    def download_file(sftp, remote_file, local_file):
+        local_file_path = pathlib.Path(local_file)
+        local_file_path.parent.mkdir(parents=True, exist_ok=True)
+        sftp.get(remote_file, str(local_file_path))
+
+    with instance_obj.ssh() as ssh:
+        sftp = ssh._client.open_sftp()
+
+        if uploading:
+            # local → remote
+            local_path_obj = pathlib.Path(local_path).resolve()
+
+            if recursive:
+                if local_path_obj.is_file():
+                    raise click.UsageError(
+                        "Cannot recursively upload a single file without a directory."
+                    )
+                if not local_path_obj.exists():
+                    raise click.UsageError(
+                        f"Local path does not exist: {local_path_obj}"
+                    )
+                upload_directory(sftp, local_path_obj, remote_path)
+            else:
+                if local_path_obj.is_dir():
+                    raise click.UsageError(
+                        f"Source '{local_path_obj}' is a directory. Use --recursive."
+                    )
+                if not local_path_obj.exists():
+                    raise click.UsageError(f"Local file not found: {local_path_obj}")
+                upload_file(sftp, local_path_obj, remote_path)
+
+        else:
+            # remote → local
+            local_path_obj = pathlib.Path(local_path).resolve()
+
+            if recursive:
+                # We consider remote_path to be a directory or a non-existent path we treat as directory
+                download_directory(sftp, remote_path, local_path_obj)
+            else:
+                # Single-file download
+                # If remote_path is a directory, error out (user must supply --recursive).
+                if sftp_isdir(sftp, remote_path):
+                    raise click.UsageError(
+                        f"Remote source '{remote_path}' is a directory. Use --recursive."
+                    )
+                download_file(sftp, remote_path, local_path_obj)
+
+        sftp.close()
+
+    if verbose:
+        click.echo("\nCopy complete.")

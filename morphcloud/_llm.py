@@ -304,7 +304,7 @@ You have access to an MMDS V2 protocol metadata server accessible at 169.254.169
 You have one tool available: "run_command" which takes a command to run and returns the result.
 Inspect the stdout, stderr, and exit code of the command's result and provide a response.
 Note that each command you execute will be run in a separate SSH session so any state changes (e.g. environment variables, directory changes) will not persist between commands. Handle this transparently for the user.
-"""    
+"""
     tools = [
         {
             "name": "run_command",
@@ -368,7 +368,11 @@ Note that each command you execute will be run in a separate SSH session so any 
 
         messages.append({"role": "user", "content": user_input})
 
-        SYSTEM_MESSAGE = SYSTEM_MESSAGE + (f"\n# Additional instructions\n\n{initial_prompt}\n" if initial_prompt else "")
+        SYSTEM_MESSAGE = SYSTEM_MESSAGE + (
+            f"\n# Additional instructions\n\n{initial_prompt}\n"
+            if initial_prompt
+            else ""
+        )
 
         while True:
             try:

@@ -2,6 +2,7 @@
 Copyright (c) 2024 Morph Labs. All rights reserved.
 Released under the license as described in the file LICENSE.
 """
+
 import importlib.metadata
 
 try:
