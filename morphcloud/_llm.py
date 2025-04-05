@@ -374,7 +374,10 @@ Note that each command you execute will be run in a separate SSH session so any 
             else ""
         )
 
-        while True:
+        anthropic_error_wait_time = 3
+        patience = 3
+        num_tries = 0
+        while num_tries < patience:
             try:
                 response_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
                 response_msg, tool_use_active = process_assistant_message(
@@ -384,6 +387,7 @@ Note that each command you execute will be run in a separate SSH session so any 
             except anthropic.APIStatusError as e:
                 print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
                 time.sleep(anthropic_error_wait_time)
+                num_tries += 1
                 continue
             except Exception as e:
                 break
