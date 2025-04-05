@@ -29,34 +29,10 @@ check-undefined:
 # Increment version if current is less than the latest on PyPI
 increment-version:
 	@echo "Checking current version against PyPI..."
-	$(PYTHON) -c 'import re; \
-	import requests; \
-	import toml; \
-	from packaging import version; \
-	pyproject = toml.load("pyproject.toml"); \
-	current_version = pyproject["project"]["version"]; \
-	response = requests.get("https://pypi.org/pypi/morphcloud/json", timeout=2); \
-	latest_version = response.json()["info"]["version"]; \
-	print(f"Current version: {current_version}"); \
-	print(f"Latest version: {latest_version}"); \
-	if version.parse(current_version) <= version.parse(latest_version): \
-		print(f"Incrementing version..."); \
-		v = version.parse(latest_version); \
-		if hasattr(v, "micro"): \
-			new_version = f"{v.major}.{v.minor}.{v.micro + 1}"; \
-		else: \
-			parts = latest_version.split("."); \
-			parts[-1] = str(int(parts[-1]) + 1); \
-			new_version = ".".join(parts); \
-		print(f"New version: {new_version}"); \
-		with open("pyproject.toml", "r") as f: \
-			content = f.read(); \
-		with open("pyproject.toml", "w") as f: \
-			f.write(re.sub(r\'version = "(.*?)"\', f\'version = "{new_version}"\', content)); \
-	else: \
-		print("Current version is already newer than PyPI, keeping it.")'
+	@chmod +x ./scripts/increment_version.py
+	@./scripts/increment_version.py
 
-# Push to GitHub and create a release
+
 release:
 	@echo "Pushing to GitHub and creating release..."
 	$(eval VERSION=$(shell grep -oP 'version = "\K[^"]+' pyproject.toml))
@@ -64,17 +40,39 @@ release:
 	git diff --quiet pyproject.toml || git add pyproject.toml
 	git diff --quiet --cached || git commit -m "Bump version to $(VERSION)"
 	git push origin main || true
+
+        # Create git tag if it doesn't exist
 	git tag -l "v$(VERSION)" | grep -q . || git tag -a "v$(VERSION)" -m "Release v$(VERSION)" 
 	git push origin "v$(VERSION)" || true
+
+        # Create GitHub release if it doesn't exist
+	@if command -v gh &> /dev/null; then \
+		if ! gh release view "v$(VERSION)" &>/dev/null; then \
+			echo "Creating GitHub release v$(VERSION)..."; \
+			gh release create "v$(VERSION)" \
+				--title "v$(VERSION)" \
+				--notes "Release v$(VERSION) of morphcloud." \
+				--target main; \
+		else \
+			echo "GitHub release v$(VERSION) already exists, skipping creation."; \
+		fi; \
+	else \
+		echo "GitHub CLI not found. Please create the release manually at:"; \
+		echo "https://github.com/$(shell git config --get remote.origin.url | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')/releases/new"; \
+	fi
 	@echo "Release created!"
 
-# Trigger the GitHub workflow manually
+
+# Trigger the GitHub workflow manually on the tagged release
 trigger-workflow:
-	@echo "Triggering GitHub publish workflow..."
+	@echo "Triggering GitHub publish workflow for tag v$(VERSION)..."
 	@if command -v gh &> /dev/null; then \
-		gh workflow run publish.yaml || echo "Please trigger the workflow manually"; \
+		echo "Running workflow publish.yaml on tag v$(VERSION)"; \
+		gh workflow run publish.yaml --ref "v$(VERSION)" || \
+		echo "Please trigger the workflow manually on the tag v$(VERSION)"; \
 	else \
 		echo "GitHub CLI not found. Please trigger the workflow manually at:"; \
 		echo "https://github.com/$(shell git config --get remote.origin.url | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')/actions/workflows/publish.yaml"; \
+		echo "Be sure to select the 'v$(VERSION)' tag when triggering the workflow!"; \
 	fi
 	@echo "Deployment complete!"
