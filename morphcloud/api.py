@@ -1,3 +1,5 @@
+# morphcloud/api.py
+
 from __future__ import annotations
 
 import os
@@ -461,15 +463,14 @@ class Snapshot(BaseModel):
                                 for line in lines[:-1]:
                                     if line:
                                         # Strip ANSI escape codes when prefixing thread name
-                                        # but pass the original line (with ANSI codes) to console.print
+                                        # but pass the original line (with ANSI codes) to console.print                                        
                                         clean_line = ansi_escape.sub("", line)
-                                        # Only add prefix if line isn't empty after stripping ANSI
+                                        # Only add prefix if line isn't empty after stripping ANSI                                        
                                         if clean_line.strip():
                                             # Use print directly to preserve ANSI codes
                                             print(f"{thread_name}: {line}")
                                         else:
                                             print(line)
-
                             # Keep the last partial line in the buffer
                             line_buffer = lines[-1]
                 time.sleep(0.1)
@@ -508,6 +509,12 @@ class Snapshot(BaseModel):
                     )
 
             channel.close()
+
+            if exit_code != 0:
+                raise RuntimeError(
+                    f"Command `{command}` failed with exit code {exit_code}."
+                )
+
         finally:
             ssh_client.close()
 
