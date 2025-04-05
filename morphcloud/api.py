@@ -463,9 +463,9 @@ class Snapshot(BaseModel):
                                 for line in lines[:-1]:
                                     if line:
                                         # Strip ANSI escape codes when prefixing thread name
-                                        # but pass the original line (with ANSI codes) to console.print                                        
+                                        # but pass the original line (with ANSI codes) to console.print
                                         clean_line = ansi_escape.sub("", line)
-                                        # Only add prefix if line isn't empty after stripping ANSI                                        
+                                        # Only add prefix if line isn't empty after stripping ANSI
                                         if clean_line.strip():
                                             # Use print directly to preserve ANSI codes
                                             print(f"{thread_name}: {line}")

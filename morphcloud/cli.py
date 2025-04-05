@@ -1,5 +1,4 @@
-# morphcloud/cli.py
-
+# Replace the imports at the top of morphcloud/cli.py
 import sys
 import json
 import importlib.metadata
@@ -8,10 +7,13 @@ import threading
 import time
 
 import click
+import requests
+from packaging import version
 import morphcloud.api as api
 from morphcloud._utils import Spinner
 
 from morphcloud.api import copy_into_or_from_instance
+
 
 # ─────────────────────────────────────────────────────────────
 #  Version & CLI Setup
@@ -23,14 +25,93 @@ except importlib.metadata.PackageNotFoundError:
     __version__ = "0.0.0-dev"  # Fallback if package not installed
 
 
-class CustomGroup(click.Group):
+def check_for_package_update(display_mode="normal"):
+    """
+    Check if the installed version of morphcloud is the latest available on PyPI.
+    Display a notification if a newer version is available.
+
+    Args:
+        display_mode (str): How to display the notification:
+            - "normal": Standard output (for --help, --version)
+            - "error": To stderr with spacing (for exception hook)
+            - "silent": Just return values, don't display anything
+
+    Returns:
+        tuple: (current_version, latest_version, is_latest) or None if check fails
+    """
+    # Skip for development versions
+    if __version__ == "0.0.0-dev":
+        return None
+
+    try:
+        # Query PyPI API for the latest version
+        response = requests.get("https://pypi.org/pypi/morphcloud/json", timeout=2)
+        response.raise_for_status()
+
+        latest_version = response.json()["info"]["version"]
+
+        # Compare versions
+        is_latest = version.parse(__version__) >= version.parse(latest_version)
+
+        # Display notification if not using the latest version
+        if not is_latest:
+            message = (
+                f"NOTE: You are using morphcloud version {__version__}, however version {latest_version} "
+                f"is available. Consider upgrading via: pip install --upgrade morphcloud"
+            )
+
+            if display_mode == "normal":
+                click.secho(f"\n{message}\n", fg="yellow")
+            elif display_mode == "error":
+                # When coming from exception hook, add spacing and output to stderr
+                click.secho(f"\n{message}", fg="yellow", err=True)
+
+        return (__version__, latest_version, is_latest)
+
+    except Exception:
+        # Silently handle any errors (network issues, package not found, etc.)
+        return None
+
+
+# Replace your CustomGroup class with this enhanced version
+
+
+class VersionCheckGroup(click.Group):
+    """
+    Custom Click Group that adds version checking on help display
+    and also when errors occur.
+    """
+
     def format_help(self, ctx, formatter):
         # Prepend version information to help text
         formatter.write_text(f"Version: {__version__}\n\n")
         super().format_help(ctx, formatter)
 
+        # Check for updates after displaying help
+        if "--help" in sys.argv or "-h" in sys.argv:
+            check_for_package_update()
 
-@click.group(cls=CustomGroup)
+    def get_command(self, ctx, cmd_name):
+        # Add update check when --version is run
+        if cmd_name == "--version":
+            check_for_package_update()
+        return super().get_command(ctx, cmd_name)
+
+    def main(self, *args, **kwargs):
+        try:
+            return super().main(*args, **kwargs)
+        except click.exceptions.ClickException:
+            # Let Click handle its own exceptions, but check version after
+            # We need to raise first so Click can display the error
+            exctype, value, tb = sys.exc_info()
+            raise
+        except Exception as e:
+            # For non-Click exceptions, check version before letting the exception propagate
+            check_for_package_update(display_mode="error")
+            raise
+
+
+@click.group(cls=VersionCheckGroup)
 @click.version_option(version=__version__, package_name="morphcloud")
 def cli():
     """
@@ -1126,10 +1207,6 @@ def chat(instance_id, instructions):
     except Exception as e:
         handle_api_error(e)
 
-
-# ─────────────────────────────────────────────────────────────
-#  Main Entry Point
-# ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     cli()
