@@ -218,6 +218,23 @@ class Browser:
             raise RuntimeError("Browser not connected.")
         return self._page.url
 
+    def _sync_get_html(self) -> str:
+        """
+        Get the HTML DOM content of the current page.
+
+        Returns:
+            The HTML content of the current page as a string.
+
+        Raises:
+            RuntimeError: If the browser is not connected.
+        """
+        if not self._connected or not self._page:
+            raise RuntimeError("Browser not connected.")
+
+        # Get the full HTML content of the page
+        html_content = self._page.content()
+        return html_content
+
     def _get_browser_ws_endpoint(self, cdp_url: str, timeout_seconds: int = 15) -> str:
         """
         Same logic as before to parse /json/version -> webSocketDebuggerUrl
@@ -342,6 +359,21 @@ class Browser:
         future = self._executor.submit(self._sync_get_current_url)
         return future.result()
 
+    def get_html(self) -> str:
+        """
+        Get the HTML DOM content of the current page.
+
+        This method returns the complete HTML content of the currently loaded page.
+        You can use this content for parsing, analysis, or extracting specific elements.
+
+        Returns:
+            The HTML content of the current page as a string.
+
+        Raises:
+            RuntimeError: If the browser is not connected.
+        """
+        future = self._executor.submit(self._sync_get_html)
+        return future.result()
 
 class Sandbox:
     """
@@ -1313,7 +1345,7 @@ class Computer:
         mcp_server.add_tool(
             lambda ms=1000: self.wait(ms) or f"Waited for {ms} milliseconds",
             "wait",
-            "Wait for specified milliseconds",
+            "Wait for some amount of time, in milliseconds. Use this after page navigations to wait for content to load.",
         )
         mcp_server.add_tool(
             lambda text: self.type_text(text) or f"Typed text: '{text}'",
@@ -1403,10 +1435,10 @@ class Computer:
             "Type the specified text in the browser",
         )
         mcp_server.add_tool(
-            lambda keys: self.browser.keypress(keys)
-            or f"Pressed keys in browser: {', '.join(keys)}",
+            lambda key: self.browser.keypress([key])
+            or f"Pressed key in browser: {key}",
             "browser_keypress",
-            "Press the specified keys in the browser",
+            "Press the specified key in the browser, ALWAYS USE THIS TOOL FOR SPECIAL KEYS LIKE arrowleft, enter, esc, etc.",
         )
         mcp_server.add_tool(
             lambda x, y: self.browser.move(x, y)
@@ -1425,6 +1457,11 @@ class Computer:
             or f"Waited for {ms} milliseconds in browser",
             "browser_wait",
             "Wait for specified milliseconds in the browser",
+        )
+        mcp_server.add_tool(
+            self.browser.get_html,
+            "browser_get_html",
+            "Get the HTML content of the current page in the browser",
         )
 
         # Sandbox tools
@@ -1548,6 +1585,20 @@ class Computer:
             openai_tools.append(openai_tool)
 
         return openai_tools
+
+    def desktop_url(self) -> Optional[str]:
+        """
+        Get the URL for the VNC desktop.
+
+        This URL can be used to access the VNC desktop of the computer instance.
+        """
+        self._instance.wait_until_ready()
+        for service in self._instance.networking.http_services:
+            if service.name == "desktop":
+                return service.url
+
+        # No VNC service found
+        return None
 
     @classmethod
     def new(
