@@ -1,23 +1,21 @@
 from __future__ import annotations
 
-import json
-import uuid
-import time
-import base64
-import typing
 import asyncio
+import base64
 import importlib.util
-
+import json
+import time
+import typing
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from morphcloud.api import Instance, InstanceAPI, Snapshot, MorphCloudClient
-
-import websocket
-
 import requests
+import websocket
 from playwright.sync_api import sync_playwright
-from concurrent.futures import ThreadPoolExecutor
+
+from morphcloud.api import Instance, InstanceAPI, MorphCloudClient, Snapshot
 
 _websockets_available = importlib.util.find_spec("websockets") is not None
 _jupyter_client_available = importlib.util.find_spec("jupyter_client") is not None
@@ -1538,14 +1536,14 @@ class Computer:
 
             # Extract properties from inputSchema if available
             if hasattr(tool, "inputSchema") and isinstance(tool.inputSchema, dict):
-                openai_tool["function"]["parameters"][
-                    "properties"
-                ] = tool.inputSchema.get("properties", {})
+                openai_tool["function"]["parameters"]["properties"] = (
+                    tool.inputSchema.get("properties", {})
+                )
                 # Only include required field if it exists
                 if "required" in tool.inputSchema:
-                    openai_tool["function"]["parameters"][
-                        "required"
-                    ] = tool.inputSchema.get("required", [])
+                    openai_tool["function"]["parameters"]["required"] = (
+                        tool.inputSchema.get("required", [])
+                    )
 
             openai_tools.append(openai_tool)
 

@@ -13,14 +13,12 @@ from functools import lru_cache
 
 import httpx
 from pydantic import BaseModel, Field, PrivateAttr
-
 # Import Rich for fancy printing
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 
 from morphcloud._utils import StrEnum
-
 
 # Global console instance
 console = Console()

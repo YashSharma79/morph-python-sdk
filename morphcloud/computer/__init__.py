@@ -1,1 +1,1 @@
-from morphcloud.computer._computer import *
+from ._computer import Computer
