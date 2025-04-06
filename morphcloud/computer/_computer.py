@@ -375,6 +375,7 @@ class Browser:
         future = self._executor.submit(self._sync_get_html)
         return future.result()
 
+
 class Sandbox:
     """
     Code execution sandbox interface for Computer using Jupyter kernels.
@@ -1599,6 +1600,18 @@ class Computer:
 
         # No VNC service found
         return None
+
+    def upload(
+        self, local_path: str, remote_path: str, recursive: bool = False
+    ) -> None:
+        return self._instance.upload(local_path, remote_path, recursive)
+
+    def branch(self, count: int = 1):
+        _, instances = self._instance.branch(count=count)
+        return [
+            Computer(Instance.model_validate(instance)._set_api(self._instance._api))
+            for instance in instances
+        ]
 
     @classmethod
     def new(
