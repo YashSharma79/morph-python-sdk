@@ -1213,16 +1213,16 @@ def computer(instance_id):
     """Start an interactive MCP computer session with an instance."""
     client = get_client()
     try:
-        from morphcloud.computers import Computer
+        from morphcloud.computer import Computer
 
         instance = client.instances.get(instance_id)
 
         computer = Computer(instance)
 
         computer.mcp().run()
-    except ImportError:
+    except ImportError as e:
         click.echo(
-            "Error: MCP requires additional dependencies (e.g., 'anthropic').",
+            f"Error: Computer requires additional dependencies (e.g., 'mcp'). {e}",
             err=True,
         )
         sys.exit(1)
