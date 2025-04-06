@@ -93,7 +93,7 @@ class Browser:
             #
             # 1) Keep the 'with' block at the class level (you'll close on .close())
             #    Or:
-            # 2) Re-init playwright each time. 
+            # 2) Re-init playwright each time.
             #
             # For a single connect, let's do the approach below:
             self._playwright = p
@@ -103,16 +103,16 @@ class Browser:
             self._page = self._context.new_page()
             self._connected = True
             # Do not exit the 'with' block here or p.stop() is called automatically
-            # We want to keep it alive for subsequent calls. 
+            # We want to keep it alive for subsequent calls.
             # So we must manually remove the 'with' and do p.stop() in ._sync_close
 
     def _sync_close(self):
         # If we got here, we need to be sure to do .stop() on the original `Playwright` object
         # But the code above used `with sync_playwright() as p:`.
-        # That means p.stop() is called automatically on exit of that 'with' block – 
-        # so we either need to restructure the code or re-init sync_playwright. 
+        # That means p.stop() is called automatically on exit of that 'with' block –
+        # so we either need to restructure the code or re-init sync_playwright.
         #
-        # Easiest fix: DO NOT use 'with sync_playwright() as p:' for connect. 
+        # Easiest fix: DO NOT use 'with sync_playwright() as p:' for connect.
         # Instead, call sync_playwright().start() once, store in self._playwright,
         # call .stop() here. Let's do that:
         if not self._connected:
@@ -1289,50 +1289,56 @@ class Computer:
             "Take a screenshot of the desktop and return as base64-encoded PNG data",
         )
         mcp_server.add_tool(
-            lambda x, y, button="left": self.click(x, y, button) or f"{button} click performed at coordinates ({x}, {y})",
-            "click", 
-            "Click at specified coordinates on the screen"
+            lambda x, y, button="left": self.click(x, y, button)
+            or f"{button} click performed at coordinates ({x}, {y})",
+            "click",
+            "Click at specified coordinates on the screen",
         )
         mcp_server.add_tool(
-            lambda x, y: self.double_click(x, y) or f"Double-click performed at coordinates ({x}, {y})",
+            lambda x, y: self.double_click(x, y)
+            or f"Double-click performed at coordinates ({x}, {y})",
             "double_click",
             "Double-click at specified coordinates on the screen",
         )
         mcp_server.add_tool(
-            lambda x, y: self.move_mouse(x, y) or f"Mouse moved to coordinates ({x}, {y})",
+            lambda x, y: self.move_mouse(x, y)
+            or f"Mouse moved to coordinates ({x}, {y})",
             "move_mouse",
             "Move the mouse to specified coordinates without clicking",
         )
         mcp_server.add_tool(
-            lambda x, y, scroll_x, scroll_y: self.scroll(x, y, scroll_x, scroll_y) or 
-            f"Scroll performed at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
-            "scroll", 
-            "Scroll at specified coordinates"
+            lambda x, y, scroll_x, scroll_y: self.scroll(x, y, scroll_x, scroll_y)
+            or f"Scroll performed at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
+            "scroll",
+            "Scroll at specified coordinates",
         )
         mcp_server.add_tool(
             lambda ms=1000: self.wait(ms) or f"Waited for {ms} milliseconds",
-            "wait", 
-            "Wait for specified milliseconds"
+            "wait",
+            "Wait for specified milliseconds",
         )
         mcp_server.add_tool(
             lambda text: self.type_text(text) or f"Typed text: '{text}'",
-            "type_text", 
-            "Type the specified text"
+            "type_text",
+            "Type the specified text",
         )
         mcp_server.add_tool(
-            lambda key_combo: self.key_press(key_combo) or f"Pressed key combination: {key_combo}",
-            "key_press", 
-            "Press the specified key or key combination"
+            lambda key_combo: self.key_press(key_combo)
+            or f"Pressed key combination: {key_combo}",
+            "key_press",
+            "Press the specified key or key combination",
         )
         mcp_server.add_tool(
-            lambda keys: self.key_press_special(keys) or f"Pressed special keys: {', '.join(keys)}",
+            lambda keys: self.key_press_special(keys)
+            or f"Pressed special keys: {', '.join(keys)}",
             "key_press_special",
             "Press special keys using a more user-friendly interface",
         )
         mcp_server.add_tool(
-            lambda path: self.drag(path) or f"Performed drag operation from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
-            "drag", 
-            "Drag from point to point along a path"
+            lambda path: self.drag(path)
+            or f"Performed drag operation from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
+            "drag",
+            "Drag from point to point along a path",
         )
         mcp_server.add_tool(
             lambda: self.dimensions,
@@ -1340,9 +1346,10 @@ class Computer:
             "Get the screen dimensions (width, height)",
         )
         mcp_server.add_tool(
-            lambda display_id: self.set_display(display_id) or f"Display set to {display_id}",
-            "set_display", 
-            "Set the X display identifier to use"
+            lambda display_id: self.set_display(display_id)
+            or f"Display set to {display_id}",
+            "set_display",
+            "Set the X display identifier to use",
         )
 
         # Browser tools
@@ -1362,14 +1369,10 @@ class Computer:
             "Go forward in browser history",
         )
         mcp_server.add_tool(
-            self.browser.get_title, 
-            "browser_get_title", 
-            "Get the current page title"
+            self.browser.get_title, "browser_get_title", "Get the current page title"
         )
         mcp_server.add_tool(
-            self.browser.get_current_url, 
-            "browser_get_url", 
-            "Get the current page URL"
+            self.browser.get_current_url, "browser_get_url", "Get the current page URL"
         )
         mcp_server.add_tool(
             self.browser.screenshot,
@@ -1377,44 +1380,51 @@ class Computer:
             "Take a screenshot of the current page and return as base64-encoded PNG data",
         )
         mcp_server.add_tool(
-            lambda x, y, button="left": self.browser.click(x, y, button) or f"{button} click performed in browser at coordinates ({x}, {y})",
+            lambda x, y, button="left": self.browser.click(x, y, button)
+            or f"{button} click performed in browser at coordinates ({x}, {y})",
             "browser_click",
             "Click at specified coordinates in the browser",
         )
         mcp_server.add_tool(
-            lambda x, y: self.browser.double_click(x, y) or f"Double-click performed in browser at coordinates ({x}, {y})",
+            lambda x, y: self.browser.double_click(x, y)
+            or f"Double-click performed in browser at coordinates ({x}, {y})",
             "browser_double_click",
             "Double-click at specified coordinates in the browser",
         )
         mcp_server.add_tool(
-            lambda x, y, scroll_x, scroll_y: self.browser.scroll(x, y, scroll_x, scroll_y) or 
-            f"Scroll performed in browser at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
+            lambda x, y, scroll_x, scroll_y: self.browser.scroll(
+                x, y, scroll_x, scroll_y
+            )
+            or f"Scroll performed in browser at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
             "browser_scroll",
             "Scroll at specified coordinates in the browser",
         )
         mcp_server.add_tool(
             lambda text: self.browser.type(text) or f"Typed text in browser: '{text}'",
-            "browser_type", 
-            "Type the specified text in the browser"
+            "browser_type",
+            "Type the specified text in the browser",
         )
         mcp_server.add_tool(
-            lambda keys: self.browser.keypress(keys) or f"Pressed keys in browser: {', '.join(keys)}",
+            lambda keys: self.browser.keypress(keys)
+            or f"Pressed keys in browser: {', '.join(keys)}",
             "browser_keypress",
             "Press the specified keys in the browser",
         )
         mcp_server.add_tool(
-            lambda x, y: self.browser.move(x, y) or f"Moved mouse in browser to coordinates ({x}, {y})",
+            lambda x, y: self.browser.move(x, y)
+            or f"Moved mouse in browser to coordinates ({x}, {y})",
             "browser_move",
             "Move mouse to specified coordinates in the browser",
         )
         mcp_server.add_tool(
-            lambda path: self.browser.drag(path) or 
-            f"Performed drag operation in browser from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
+            lambda path: self.browser.drag(path)
+            or f"Performed drag operation in browser from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
             "browser_drag",
             "Drag from point to point along a path in the browser",
         )
         mcp_server.add_tool(
-            lambda ms=1000: self.browser.wait(ms) or f"Waited for {ms} milliseconds in browser",
+            lambda ms=1000: self.browser.wait(ms)
+            or f"Waited for {ms} milliseconds in browser",
             "browser_wait",
             "Wait for specified milliseconds in the browser",
         )
@@ -1431,9 +1441,7 @@ class Computer:
             "Create a new Jupyter notebook",
         )
         mcp_server.add_tool(
-            self.sandbox.add_cell, 
-            "add_cell", 
-            "Add a cell to a Jupyter notebook"
+            self.sandbox.add_cell, "add_cell", "Add a cell to a Jupyter notebook"
         )
         mcp_server.add_tool(
             self.sandbox.execute_cell,
@@ -1441,9 +1449,7 @@ class Computer:
             "Execute a specific cell in a Jupyter notebook",
         )
         mcp_server.add_tool(
-            self.sandbox.list_kernels, 
-            "list_kernels", 
-            "List available Jupyter kernels"
+            self.sandbox.list_kernels, "list_kernels", "List available Jupyter kernels"
         )
         mcp_server.add_tool(
             lambda: self.sandbox.jupyter_url,
@@ -1451,7 +1457,8 @@ class Computer:
             "Get the Jupyter server URL",
         )
         mcp_server.add_tool(
-            lambda timeout=30: self.sandbox.wait_for_service(timeout) or f"Jupyter service ready after waiting up to {timeout} seconds",
+            lambda timeout=30: self.sandbox.wait_for_service(timeout)
+            or f"Jupyter service ready after waiting up to {timeout} seconds",
             "wait_for_jupyter",
             "Wait for Jupyter service to be ready",
         )
@@ -1531,29 +1538,31 @@ class Computer:
 
             # Extract properties from inputSchema if available
             if hasattr(tool, "inputSchema") and isinstance(tool.inputSchema, dict):
-                openai_tool["function"]["parameters"]["properties"] = (
-                    tool.inputSchema.get("properties", {})
-                )
+                openai_tool["function"]["parameters"][
+                    "properties"
+                ] = tool.inputSchema.get("properties", {})
                 # Only include required field if it exists
                 if "required" in tool.inputSchema:
-                    openai_tool["function"]["parameters"]["required"] = (
-                        tool.inputSchema.get("required", [])
-                    )
+                    openai_tool["function"]["parameters"][
+                        "required"
+                    ] = tool.inputSchema.get("required", [])
 
             openai_tools.append(openai_tool)
 
         return openai_tools
 
     @classmethod
-    def new(cls, client: Optional[MorphCloudClient] = None, ttl_seconds: Optional[int] = None) -> Computer:
+    def new(
+        cls,
+        client: Optional[MorphCloudClient] = None,
+        ttl_seconds: Optional[int] = None,
+    ) -> Computer:
         client = client or MorphCloudClient()
 
         snapshot = client.snapshots.list(metadata={"type": "computer-dev"})
 
         if not snapshot:
-            raise ValueError(
-                "No snapshots available for Computer."
-            )
+            raise ValueError("No snapshots available for Computer.")
 
         # Start a new computer instance
         computer = ComputerAPI(client).start(

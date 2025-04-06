@@ -285,7 +285,6 @@ def process_assistant_message(response_stream):
 
 
 def agent_loop(instance, initial_prompt: Optional[str] = None):
-
     SYSTEM_MESSAGE = """# Background
 You are a Morph Virtual Machine, a cloud environment for securely executing AI generated code, you are a semi-autonomous agent that can run commands inside of your MorphVM environment.
 

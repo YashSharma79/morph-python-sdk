@@ -13,6 +13,7 @@ from functools import lru_cache
 
 import httpx
 from pydantic import BaseModel, Field, PrivateAttr
+
 # Import Rich for fancy printing
 from rich.console import Console
 from rich.live import Live
@@ -135,15 +136,13 @@ class MorphCloudClient:
     def images(self) -> ImageAPI:
         return ImageAPI(self)
 
-
     # Add this property to the MorphCloudClient class
     @property
     def computers(self):
         """Access the API for enhanced instance capabilities."""
         from morphcloud.computers import ComputerAPI
+
         return ComputerAPI(self)
-
-
 
 
 class BaseAPI:
@@ -527,7 +526,7 @@ class Snapshot(BaseModel):
 
         finally:
             ssh_client.close()
-        
+
     def _cache_effect(
         self,
         fn: typing.Callable[[Instance], None],

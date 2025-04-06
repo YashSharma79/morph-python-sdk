@@ -349,7 +349,8 @@ class SSHClient:
         background: typing.Literal[True],
         get_pty: bool = True,
         timeout: typing.Optional[float] = None,
-    ) -> BackgroundProcess: ...
+    ) -> BackgroundProcess:
+        ...
 
     @typing.overload
     def run(
@@ -358,7 +359,8 @@ class SSHClient:
         background: typing.Literal[False] = False,
         get_pty: bool = True,
         timeout: typing.Optional[float] = None,
-    ) -> CommandResult: ...
+    ) -> CommandResult:
+        ...
 
     def run(
         self,
