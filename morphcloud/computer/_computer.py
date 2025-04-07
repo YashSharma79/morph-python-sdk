@@ -4,13 +4,13 @@ import asyncio
 import base64
 import importlib.util
 import json
+import subprocess
 import time
 import typing
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-import subprocess
 
 import requests
 import websocket
@@ -1321,7 +1321,7 @@ class Computer:
         3. Code execution sandbox - running Python code, notebook management, etc.
 
         Note: The returned FastMCP server is not started automatically. You need to
-        call its .run() method with the desired transport protocol to start it, or use 
+        call its .run() method with the desired transport protocol to start it, or use
         the Computer's helper methods like start_mcp_server().
 
         Returns:
@@ -1340,23 +1340,29 @@ class Computer:
 
         # Desktop/VNC unified tool
         mcp_server.add_tool(
-            lambda command_name, **kwargs: self._execute_desktop_command(command_name, **kwargs),
+            lambda command_name, **kwargs: self._execute_desktop_command(
+                command_name, **kwargs
+            ),
             name="desktop",
-            description="Execute desktop/VNC commands. Available commands: screenshot, click, double_click, move_mouse, scroll, wait, type_text, key_press, key_press_special, drag, get_dimensions, set_display"
+            description="Execute desktop/VNC commands. Available commands: screenshot, click, double_click, move_mouse, scroll, wait, type_text, key_press, key_press_special, drag, get_dimensions, set_display",
         )
 
         # Browser unified tool
         mcp_server.add_tool(
-            lambda command_name, **kwargs: self._execute_browser_command(command_name, **kwargs),
+            lambda command_name, **kwargs: self._execute_browser_command(
+                command_name, **kwargs
+            ),
             name="browser",
-            description="Execute browser commands. Available commands: goto, back, forward, get_title, get_url, screenshot, click, double_click, scroll, type, keypress, move, drag, wait, get_html"
+            description="Execute browser commands. Available commands: goto, back, forward, get_title, get_url, screenshot, click, double_click, scroll, type, keypress, move, drag, wait, get_html",
         )
 
         # Sandbox unified tool
         mcp_server.add_tool(
-            lambda command_name, **kwargs: self._execute_sandbox_command(command_name, **kwargs),
+            lambda command_name, **kwargs: self._execute_sandbox_command(
+                command_name, **kwargs
+            ),
             name="sandbox",
-            description="Execute sandbox commands. Available commands: execute_code, create_notebook, add_cell, execute_cell, list_kernels, get_jupyter_url, wait_for_jupyter, start_kernel"
+            description="Execute sandbox commands. Available commands: execute_code, create_notebook, add_cell, execute_cell, list_kernels, get_jupyter_url, wait_for_jupyter, start_kernel",
         )
 
         return mcp_server
@@ -1387,7 +1393,7 @@ class Computer:
         """
         Get the SSE URL for connecting to the MCP server.
 
-        This method returns the URL that clients can use to connect to 
+        This method returns the URL that clients can use to connect to
         the MCP server over SSE transport.
 
         Args:
@@ -1407,7 +1413,9 @@ class Computer:
         # Return the SSE URL
         return f"http://{host}:{port}/sse"
 
-    def start_mcp_server(self, transport="sse", host=None, port=None, file_path=None) -> "Union[str, 'subprocess.Popen']":
+    def start_mcp_server(
+        self, transport="sse", host=None, port=None, file_path=None
+    ) -> "Union[str, 'subprocess.Popen']":
         """
         Start the MCP server with the specified transport.
 
@@ -1447,6 +1455,7 @@ class Computer:
             # Start the server in a background thread
             def run_server():
                 import asyncio
+
                 asyncio.run(mcp_server.run_sse_async())
 
             server_thread = threading.Thread(target=run_server, daemon=True)
@@ -1454,15 +1463,14 @@ class Computer:
 
             # Return the URL for clients to connect
             url = self.get_mcp_sse_url(
-                host=mcp_server.settings.host,
-                port=mcp_server.settings.port
+                host=mcp_server.settings.host, port=mcp_server.settings.port
             )
 
             return url
 
         else:
             raise ValueError(f"Unknown transport: {transport}. Use 'stdio' or 'sse'.")
-    
+
     def _execute_desktop_command(self, command_name, **kwargs):
         """Execute a desktop/VNC command based on the command_name parameter."""
 
@@ -1650,7 +1658,7 @@ class Computer:
 
         else:
             raise ValueError(f"Unknown sandbox command: {command_name}")
-    
+
     def as_anthropic_tools(self) -> List[Dict[str, Any]]:
         """
         Convert Computer's MCP tools into Anthropic's function calling format.
@@ -1756,7 +1764,7 @@ class Computer:
         return [
             Computer(Instance.model_validate(instance)._set_api(self._instance._api))
             for instance in instances
-        ]    
+        ]
 
     @classmethod
     def new(
@@ -1813,7 +1821,7 @@ class Computer:
         Returns:
             None
         """
-        self.shutdown()    
+        self.shutdown()
 
 
 class ComputerAPI:
@@ -1845,7 +1853,7 @@ class ComputerAPI:
         snapshot = self._client.snapshots.get(snapshot_id)
 
         # Check if the snapshot has the required metadata tag
-        if snapshot.metadata.get("type") != "computer-dev":
+        if snapshot.metadata.get("type") != "computer-dev-04072025":
             raise ValueError(
                 f"Snapshot {snapshot_id} is not a valid Computer snapshot. "
                 f"Only snapshots with metadata 'type=computer-dev-04072025' can be used with Computer API."

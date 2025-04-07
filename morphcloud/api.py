@@ -1200,15 +1200,15 @@ class Instance(BaseModel):
         await self.astop()
 
     def as_container(
-        self, 
-        image: str, 
-        container_name: str = "container", 
-        command: str = "tail -f /dev/null", 
+        self,
+        image: str,
+        container_name: str = "container",
+        command: str = "tail -f /dev/null",
         container_args: typing.Optional[typing.List[str]] = None,
         ports: typing.Optional[typing.Dict[int, int]] = None,
         volumes: typing.Optional[typing.List[str]] = None,
         env: typing.Optional[typing.Dict[str, str]] = None,
-        restart_policy: str = "unless-stopped"
+        restart_policy: str = "unless-stopped",
     ) -> None:
         """
         Configure the instance to redirect all SSH connections to a Docker container.
@@ -1242,7 +1242,9 @@ class Instance(BaseModel):
             # Verify docker is running
             result = ssh.run(["systemctl", "is-active", "docker"])
             if result.exit_code != 0:
-                console.print("[yellow]Docker not active, starting Docker service...[/yellow]")
+                console.print(
+                    "[yellow]Docker not active, starting Docker service...[/yellow]"
+                )
                 ssh.run(["systemctl", "start", "docker.service"])
                 ssh.run(["systemctl", "start", "containerd.service"])
 
@@ -1281,7 +1283,9 @@ class Instance(BaseModel):
                 docker_cmd.extend(command)
 
             # Run the docker container
-            console.print(f"[blue]Starting container '{container_name}' from image '{image}'...[/blue]")
+            console.print(
+                f"[blue]Starting container '{container_name}' from image '{image}'...[/blue]"
+            )
             console.print(f"[blue]{docker_cmd=}[/blue]")
             result = ssh.run(docker_cmd)
             if result.exit_code != 0:
@@ -1299,7 +1303,9 @@ if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
     exec docker exec -it "$CONTAINER_NAME" /bin/bash -l
 else
     exec docker exec -it "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
-fi""".format(container_name=container_name)
+fi""".format(
+                container_name=container_name
+            )
 
             # Write the container.sh script to the instance
             console.print("[blue]Installing container redirection script...[/blue]")
@@ -1314,28 +1320,36 @@ fi""".format(container_name=container_name)
 
             if grep_result.exit_code == 0:
                 # ForceCommand already exists, update it
-                ssh.run("sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config")
+                ssh.run(
+                    "sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config"
+                )
             else:
                 # Add ForceCommand to the end of sshd_config
-                ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
+                ssh.run(
+                    'echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config'
+                )
 
             # Restart SSH service
             console.print("[blue]Restarting SSH service...[/blue]")
             ssh.run(["systemctl", "restart", "sshd"])
 
-        console.print(f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]")
-        console.print("[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]")
+        console.print(
+            f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]"
+        )
+        console.print(
+            "[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]"
+        )
 
     async def aas_container(
-        self, 
-        image: str, 
-        container_name: str = "container", 
-        command: str = "tail -f /dev/null", 
+        self,
+        image: str,
+        container_name: str = "container",
+        command: str = "tail -f /dev/null",
         container_args: typing.Optional[typing.List[str]] = None,
         ports: typing.Optional[typing.Dict[int, int]] = None,
         volumes: typing.Optional[typing.List[str]] = None,
         env: typing.Optional[typing.Dict[str, str]] = None,
-        restart_policy: str = "unless-stopped"
+        restart_policy: str = "unless-stopped",
     ) -> None:
         """
         Async version of as_container. Configure the instance to redirect all SSH connections to a Docker container.
@@ -1373,8 +1387,8 @@ fi""".format(container_name=container_name)
             ports=ports,
             volumes=volumes,
             env=env,
-            restart_policy=restart_policy
-        )        
+            restart_policy=restart_policy,
+        )
 
 
 # Helper functions

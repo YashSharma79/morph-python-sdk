@@ -497,10 +497,7 @@ class SSHClient:
         return _interactive_shell(self._client, command)
 
     def write_file(
-        self,
-        remote_path: str,
-        content: typing.Union[str, bytes],
-        mode: int = 0o644
+        self, remote_path: str, content: typing.Union[str, bytes], mode: int = 0o644
     ) -> None:
         """
         Write content directly to a file on the remote machine.
@@ -514,10 +511,10 @@ class SSHClient:
         try:
             # Convert string to bytes if needed
             if isinstance(content, str):
-                content = content.encode('utf-8')
+                content = content.encode("utf-8")
 
             # Create a temporary file-like object
-            with sftp.open(remote_path, 'wb') as f:
+            with sftp.open(remote_path, "wb") as f:
                 f.write(content)
 
             # Set file permissions
@@ -526,9 +523,7 @@ class SSHClient:
             sftp.close()
 
     def read_file(
-        self,
-        remote_path: str,
-        binary: bool = False
+        self, remote_path: str, binary: bool = False
     ) -> typing.Union[str, bytes]:
         """
         Read content from a file on the remote machine.
@@ -542,14 +537,14 @@ class SSHClient:
         """
         sftp = self._client.open_sftp()
         try:
-            with sftp.open(remote_path, 'rb') as f:
+            with sftp.open(remote_path, "rb") as f:
                 content = f.read()
 
             if binary:
                 return content
-            return content.decode('utf-8', errors='replace')
+            return content.decode("utf-8", errors="replace")
         finally:
-            sftp.close()    
+            sftp.close()
 
     def __enter__(self):
         return self
