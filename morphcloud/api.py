@@ -1534,7 +1534,9 @@ fi"""
 
             # Write the container.sh script to the instance using our new write_file method
             console.print("[blue]Installing container redirection script...[/blue]")
-            ssh.write_file("/root/container.sh", container_script, mode=0o755)  # Using 0o755 to make it executable
+            ssh.write_file(
+                "/root/container.sh", container_script, mode=0o755
+            )  # Using 0o755 to make it executable
 
             # Update SSH configuration to force commands through the script
             console.print("[blue]Configuring SSH to redirect to container...[/blue]")
@@ -1544,10 +1546,14 @@ fi"""
 
             if grep_result.returncode == 0:
                 # ForceCommand already exists, update it
-                ssh.run("sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config")
+                ssh.run(
+                    "sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config"
+                )
             else:
                 # Add ForceCommand to the end of sshd_config
-                ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
+                ssh.run(
+                    'echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config'
+                )
 
             # Restart SSH service
             console.print("[blue]Restarting SSH service...[/blue]")
@@ -1557,11 +1563,16 @@ fi"""
             console.print("[blue]Testing container connectivity...[/blue]")
             test_result = ssh.run('echo "Container setup test"')
             if test_result.returncode != 0:
-                console.print("[yellow]Warning: Container setup test returned non-zero exit code. Check container configuration.[/yellow]")
+                console.print(
+                    "[yellow]Warning: Container setup test returned non-zero exit code. Check container configuration.[/yellow]"
+                )
 
-        console.print(f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]")
-        console.print("[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]")
-
+        console.print(
+            f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]"
+        )
+        console.print(
+            "[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]"
+        )
 
     async def aas_container(
         self,
