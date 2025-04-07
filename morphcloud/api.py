@@ -1488,10 +1488,12 @@ class Instance(BaseModel):
                 raise RuntimeError(error_msg)
 
             # Create improved container.sh script with TTY detection
-            container_script = f"""#!/bin/bash
+            container_script = (
+                f"""#!/bin/bash
 
 # container.sh - Redirects SSH commands to the Docker container
-CONTAINER_NAME="container"
+CONTAINER_NAME={container_name}"""
+                + """
 
 # Function to check if the container has the specified shell
 check_shell() {
@@ -1533,6 +1535,7 @@ else
         exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
     fi
 fi"""
+            )
 
             # Write the container.sh script to the instance using our new write_file method
             console.print("[blue]Installing container redirection script...[/blue]")
