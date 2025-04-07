@@ -669,6 +669,135 @@ class Snapshot(BaseModel):
             self.download, remote_path, local_path, recursive
         )
 
+    def as_container(
+        self,
+        image: str,
+        container_name: str = "container",
+        command: str = "tail -f /dev/null",
+        container_args: typing.Optional[typing.List[str]] = None,
+        ports: typing.Optional[typing.Dict[int, int]] = None,
+        volumes: typing.Optional[typing.List[str]] = None,
+        env: typing.Optional[typing.Dict[str, str]] = None,
+        restart_policy: str = "unless-stopped",
+    ) -> Snapshot:
+        """
+        Configure a snapshot so that instances started from it will automatically
+        redirect all SSH connections to a Docker container.
+
+        This method:
+        1. Starts a temporary instance from this snapshot
+        2. Ensures Docker is running on the instance
+        3. Runs the specified Docker container
+        4. Configures SSH to redirect all commands to the container
+        5. Creates a new snapshot with these changes
+        6. Returns the new snapshot
+
+        After starting an instance from the returned snapshot, all SSH connections
+        and commands will be passed through to the container rather than the host VM.
+
+        Parameters:
+            image: The Docker image to run (e.g. "ubuntu:latest", "postgres:13")
+            container_name: The name to give the container (default: "container")
+            command: The command to run in the container (default: "tail -f /dev/null")
+            container_args: Additional arguments to pass to "docker run"
+            ports: Dictionary mapping host ports to container ports
+            volumes: List of volume mounts (e.g. ["/host/path:/container/path"])
+            env: Dictionary of environment variables to set in the container
+            restart_policy: Container restart policy (default: "unless-stopped")
+
+        Returns:
+            A new snapshot configured to automatically start and use the container
+        """
+        # The function to apply on the instance that will be used for caching
+        def _container_effect(
+            instance: Instance,
+            image,
+            container_name="container",
+            command="tail -f /dev/null",
+            container_args=None,
+            ports=None,
+            volumes=None,
+            env=None,
+            restart_policy="unless-stopped",
+        ):
+            # Call the existing instance.as_container method
+            instance.as_container(
+                image=image,
+                container_name=container_name,
+                command=command,
+                container_args=container_args,
+                ports=ports,
+                volumes=volumes,
+                env=env,
+                restart_policy=restart_policy,
+            )
+
+        # Use the existing caching mechanism to avoid rebuilding the same snapshot
+        # All parameters are passed to _cache_effect to ensure proper cache hashing
+        return self._cache_effect(
+            fn=_container_effect,
+            image=image,
+            container_name=container_name,
+            command=command,
+            container_args=container_args,
+            ports=ports,
+            volumes=volumes,
+            env=env,
+            restart_policy=restart_policy,
+        )
+
+    async def aas_container(
+        self,
+        image: str,
+        container_name: str = "container",
+        command: str = "tail -f /dev/null",
+        container_args: typing.Optional[typing.List[str]] = None,
+        ports: typing.Optional[typing.Dict[int, int]] = None,
+        volumes: typing.Optional[typing.List[str]] = None,
+        env: typing.Optional[typing.Dict[str, str]] = None,
+        restart_policy: str = "unless-stopped",
+    ) -> Snapshot:
+        """
+        Asynchronous version: Configure a snapshot so that instances started from it will 
+        automatically redirect all SSH connections to a Docker container.
+
+        This method:
+        1. Starts a temporary instance from this snapshot
+        2. Ensures Docker is running on the instance
+        3. Runs the specified Docker container
+        4. Configures SSH to redirect all commands to the container
+        5. Creates a new snapshot with these changes
+        6. Returns the new snapshot
+
+        After starting an instance from the returned snapshot, all SSH connections
+        and commands will be passed through to the container rather than the host VM.
+
+        Parameters:
+            image: The Docker image to run (e.g. "ubuntu:latest", "postgres:13")
+            container_name: The name to give the container (default: "container")
+            command: The command to run in the container (default: "tail -f /dev/null")
+            container_args: Additional arguments to pass to "docker run"
+            ports: Dictionary mapping host ports to container ports
+            volumes: List of volume mounts (e.g. ["/host/path:/container/path"])
+            env: Dictionary of environment variables to set in the container
+            restart_policy: Container restart policy (default: "unless-stopped")
+
+        Returns:
+            A new snapshot configured to automatically start and use the container
+        """
+        # Run the synchronous version in a thread
+        return await asyncio.to_thread(
+            self.as_container,
+            image=image,
+            container_name=container_name,
+            command=command,
+            container_args=container_args,
+            ports=ports,
+            volumes=volumes,
+            env=env,
+            restart_policy=restart_policy,
+        )    
+
 
 class InstanceStatus(StrEnum):
     PENDING = "pending"
