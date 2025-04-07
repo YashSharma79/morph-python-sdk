@@ -708,6 +708,7 @@ class Snapshot(BaseModel):
         Returns:
             A new snapshot configured to automatically start and use the container
         """
+
         # The function to apply on the instance that will be used for caching
         def _container_effect(
             instance: Instance,
@@ -758,7 +759,7 @@ class Snapshot(BaseModel):
         restart_policy: str = "unless-stopped",
     ) -> Snapshot:
         """
-        Asynchronous version: Configure a snapshot so that instances started from it will 
+        Asynchronous version: Configure a snapshot so that instances started from it will
         automatically redirect all SSH connections to a Docker container.
 
         This method:
@@ -796,7 +797,7 @@ class Snapshot(BaseModel):
             volumes=volumes,
             env=env,
             restart_policy=restart_policy,
-        )    
+        )
 
 
 class InstanceStatus(StrEnum):
@@ -1368,14 +1369,66 @@ class Instance(BaseModel):
 
         # Establish SSH connection
         with self.ssh() as ssh:
-            # Verify docker is running
+            # --- Start: Added Package Check and Installation ---
+            required_packages = ["docker.io", "git", "curl"]
+            missing_packages = []
+            console.print("[blue]Checking for required packages...[/blue]")
+            for pkg in required_packages:
+                # Use dpkg -s which exits non-zero if package is not installed or unknown
+                result = ssh.run(["dpkg", "-s", pkg])
+                if result.exit_code != 0:
+                    console.print(f"[yellow]Package '{pkg}' not found.[/yellow]")
+                    missing_packages.append(pkg)
+                # else: # Optional: uncomment for more verbosity
+                #     console.print(f"[green]Package '{pkg}' found.[/green]")
+
+            if missing_packages:
+                console.print("[yellow]Updating package lists (apt-get update)...[/yellow]")
+                # Run apt-get update first
+                update_result = ssh.run(["apt-get", "update", "-y"])
+                if update_result.exit_code != 0:
+                    error_msg = f"Failed to update apt package lists: {update_result.stderr}"
+                    console.print(f"[bold red]{error_msg}[/bold red]")
+                    raise RuntimeError(error_msg)
+
+                # Install all missing packages at once
+                console.print(f"[yellow]Installing missing packages: {', '.join(missing_packages)}...[/yellow]")
+                install_cmd = ["apt-get", "install", "-y"] + missing_packages
+                install_result = ssh.run(install_cmd)
+                if install_result.exit_code != 0:
+                    error_msg = f"Failed to install packages ({', '.join(missing_packages)}): {install_result.stderr}"
+                    console.print(f"[bold red]{error_msg}[/bold red]")
+                    raise RuntimeError(error_msg)
+                console.print("[green]Required packages installed successfully.[/green]")
+            else:
+                console.print("[green]All required packages are already installed.[/green]")
+            # --- End: Added Package Check and Installation ---
+
+
+            # Verify docker service is running
             result = ssh.run(["systemctl", "is-active", "docker"])
             if result.exit_code != 0:
                 console.print(
-                    "[yellow]Docker not active, starting Docker service...[/yellow]"
+                    "[yellow]Docker service not active, attempting to start...[/yellow]"
                 )
-                ssh.run(["systemctl", "start", "docker.service"])
-                ssh.run(["systemctl", "start", "containerd.service"])
+                # Attempt to start services (might fail if installation just happened and needs reboot, but usually works)
+                ssh.run(["systemctl", "start", "containerd.service"]) # Best effort start
+                ssh.run(["systemctl", "start", "docker.service"]) # Best effort start
+
+                # Re-check docker status after attempting to start
+                time.sleep(2) # Give services a moment to start
+                result = ssh.run(["systemctl", "is-active", "docker"])
+                if result.exit_code != 0:
+                     error_msg = f"Docker service failed to start or is not installed correctly. Status check stderr: {result.stderr}"
+                     console.print(f"[bold red]{error_msg}[/bold red]")
+                     # Consider checking for common issues like needing a reboot after install
+                     console.print("[bold yellow]Hint: A system reboot might be required after Docker installation.[/bold yellow]")
+                     raise RuntimeError(error_msg)
+                else:
+                    console.print("[green]Docker service started successfully.[/green]")
+            else:
+                console.print("[green]Docker service is active.[/green]")
+
 
             # Build docker run command
             docker_cmd = ["docker", "run", "-d", "--name", container_name]
