@@ -1383,27 +1383,36 @@ class Instance(BaseModel):
                 #     console.print(f"[green]Package '{pkg}' found.[/green]")
 
             if missing_packages:
-                console.print("[yellow]Updating package lists (apt-get update)...[/yellow]")
+                console.print(
+                    "[yellow]Updating package lists (apt-get update)...[/yellow]"
+                )
                 # Run apt-get update first
                 update_result = ssh.run(["apt-get", "update", "-y"])
                 if update_result.exit_code != 0:
-                    error_msg = f"Failed to update apt package lists: {update_result.stderr}"
+                    error_msg = (
+                        f"Failed to update apt package lists: {update_result.stderr}"
+                    )
                     console.print(f"[bold red]{error_msg}[/bold red]")
                     raise RuntimeError(error_msg)
 
                 # Install all missing packages at once
-                console.print(f"[yellow]Installing missing packages: {', '.join(missing_packages)}...[/yellow]")
+                console.print(
+                    f"[yellow]Installing missing packages: {', '.join(missing_packages)}...[/yellow]"
+                )
                 install_cmd = ["apt-get", "install", "-y"] + missing_packages
                 install_result = ssh.run(install_cmd)
                 if install_result.exit_code != 0:
                     error_msg = f"Failed to install packages ({', '.join(missing_packages)}): {install_result.stderr}"
                     console.print(f"[bold red]{error_msg}[/bold red]")
                     raise RuntimeError(error_msg)
-                console.print("[green]Required packages installed successfully.[/green]")
+                console.print(
+                    "[green]Required packages installed successfully.[/green]"
+                )
             else:
-                console.print("[green]All required packages are already installed.[/green]")
+                console.print(
+                    "[green]All required packages are already installed.[/green]"
+                )
             # --- End: Added Package Check and Installation ---
-
 
             # Verify docker service is running
             result = ssh.run(["systemctl", "is-active", "docker"])
@@ -1412,23 +1421,26 @@ class Instance(BaseModel):
                     "[yellow]Docker service not active, attempting to start...[/yellow]"
                 )
                 # Attempt to start services (might fail if installation just happened and needs reboot, but usually works)
-                ssh.run(["systemctl", "start", "containerd.service"]) # Best effort start
-                ssh.run(["systemctl", "start", "docker.service"]) # Best effort start
+                ssh.run(
+                    ["systemctl", "start", "containerd.service"]
+                )  # Best effort start
+                ssh.run(["systemctl", "start", "docker.service"])  # Best effort start
 
                 # Re-check docker status after attempting to start
-                time.sleep(2) # Give services a moment to start
+                time.sleep(2)  # Give services a moment to start
                 result = ssh.run(["systemctl", "is-active", "docker"])
                 if result.exit_code != 0:
-                     error_msg = f"Docker service failed to start or is not installed correctly. Status check stderr: {result.stderr}"
-                     console.print(f"[bold red]{error_msg}[/bold red]")
-                     # Consider checking for common issues like needing a reboot after install
-                     console.print("[bold yellow]Hint: A system reboot might be required after Docker installation.[/bold yellow]")
-                     raise RuntimeError(error_msg)
+                    error_msg = f"Docker service failed to start or is not installed correctly. Status check stderr: {result.stderr}"
+                    console.print(f"[bold red]{error_msg}[/bold red]")
+                    # Consider checking for common issues like needing a reboot after install
+                    console.print(
+                        "[bold yellow]Hint: A system reboot might be required after Docker installation.[/bold yellow]"
+                    )
+                    raise RuntimeError(error_msg)
                 else:
                     console.print("[green]Docker service started successfully.[/green]")
             else:
                 console.print("[green]Docker service is active.[/green]")
-
 
             # Build docker run command
             docker_cmd = ["docker", "run", "-d", "--name", container_name]
