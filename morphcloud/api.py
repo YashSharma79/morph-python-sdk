@@ -1494,9 +1494,17 @@ class Instance(BaseModel):
 CONTAINER_NAME="{container_name}"
 
 if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
+    # Interactive shell login - TTY is needed
     exec docker exec -it "$CONTAINER_NAME" /bin/bash -l
 else
-    exec docker exec -it "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+    # Command execution - Only use -it if we have a TTY
+    if [ -t 0 ]; then
+        # TTY is available, use interactive mode
+        exec docker exec -it "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+    else
+        # No TTY available, run without -it flags
+        exec docker exec "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+    fi
 fi""".format(
                 container_name=container_name
             )
