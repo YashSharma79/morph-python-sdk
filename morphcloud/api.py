@@ -1491,16 +1491,16 @@ class Instance(BaseModel):
             container_script = f"""#!/bin/bash
 
 # container.sh - Redirects SSH commands to the Docker container
-CONTAINER_NAME="{container_name}"
+CONTAINER_NAME="container"
 
 # Function to check if the container has the specified shell
-check_shell() {{
+check_shell() {
     if docker exec "$CONTAINER_NAME" which "$1" >/dev/null 2>&1; then
         echo "$1"
         return 0
     fi
     return 1
-}}
+}
 
 # Determine the best shell available in the container
 SHELL_TO_USE=""
@@ -1518,17 +1518,19 @@ if [ -z "$SHELL_TO_USE" ]; then
 fi
 
 if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
-    # Interactive login shell - use -it flags
-    exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -l
+    # Interactive login shell - use -it flags but WITHOUT -l
+    # This is for when users SSH in directly without a command
+    exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE"
 else
     # Command execution - detect if TTY is available
     if [ -t 0 ]; then
-        # TTY is available, use interactive mode
-        exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -lc "$SSH_ORIGINAL_COMMAND"
+        # TTY is available, use interactive mode WITHOUT -l
+        # This makes it a non-login interactive shell
+        exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
     else
-        # No TTY available, run without -it flags
-        # This prevents hanging in non-interactive scenarios
-        exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -lc "$SSH_ORIGINAL_COMMAND"
+        # No TTY available, run without -it flags and without -l
+        # This makes it a non-login, non-interactive shell
+        exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
     fi
 fi"""
 
