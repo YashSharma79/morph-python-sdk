@@ -10,6 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+import subprocess
 
 import requests
 import websocket
@@ -1308,204 +1309,348 @@ class Computer:
         """
         self._instance.stop()
 
-    def mcp(self):
+    def mcp(self) -> "mcp.server.fastmcp.FastMCP":
+        """
+        Get a FastMCP server for this Computer instance.
+
+        This method creates and returns a FastMCP server object that exposes the Computer's
+        capabilities through the Model Context Protocol (MCP). The server includes tools for:
+
+        1. Desktop/VNC operations - screenshot, mouse actions, keyboard input, etc.
+        2. Browser automation - web navigation, interaction, scraping, etc.
+        3. Code execution sandbox - running Python code, notebook management, etc.
+
+        Note: The returned FastMCP server is not started automatically. You need to
+        call its .run() method with the desired transport protocol to start it, or use 
+        the Computer's helper methods like start_mcp_server().
+
+        Returns:
+            A FastMCP server instance with Computer-specific tools configured
+
+        Example:
+            # Get the MCP server
+            mcp_server = computer.mcp()
+
+            # Run it with SSE transport
+            mcp_server.run(transport="sse")
+        """
         from mcp.server.fastmcp import FastMCP
 
         mcp_server = FastMCP("computer")
 
-        # Desktop/VNC interaction tools
+        # Desktop/VNC unified tool
         mcp_server.add_tool(
-            self.screenshot,
-            "screenshot",
-            "Take a screenshot of the desktop and return as base64-encoded PNG data",
-        )
-        mcp_server.add_tool(
-            lambda x, y, button="left": self.click(x, y, button)
-            or f"{button} click performed at coordinates ({x}, {y})",
-            "click",
-            "Click at specified coordinates on the screen",
-        )
-        mcp_server.add_tool(
-            lambda x, y: self.double_click(x, y)
-            or f"Double-click performed at coordinates ({x}, {y})",
-            "double_click",
-            "Double-click at specified coordinates on the screen",
-        )
-        mcp_server.add_tool(
-            lambda x, y: self.move_mouse(x, y)
-            or f"Mouse moved to coordinates ({x}, {y})",
-            "move_mouse",
-            "Move the mouse to specified coordinates without clicking",
-        )
-        mcp_server.add_tool(
-            lambda x, y, scroll_x, scroll_y: self.scroll(x, y, scroll_x, scroll_y)
-            or f"Scroll performed at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
-            "scroll",
-            "Scroll at specified coordinates",
-        )
-        mcp_server.add_tool(
-            lambda ms=1000: self.wait(ms) or f"Waited for {ms} milliseconds",
-            "wait",
-            "Wait for some amount of time, in milliseconds. Use this after page navigations to wait for content to load.",
-        )
-        mcp_server.add_tool(
-            lambda text: self.type_text(text) or f"Typed text: '{text}'",
-            "type_text",
-            "Type the specified text",
-        )
-        mcp_server.add_tool(
-            lambda key_combo: self.key_press(key_combo)
-            or f"Pressed key combination: {key_combo}",
-            "key_press",
-            "Press the specified key or key combination",
-        )
-        mcp_server.add_tool(
-            lambda keys: self.key_press_special(keys)
-            or f"Pressed special keys: {', '.join(keys)}",
-            "key_press_special",
-            "Press special keys using a more user-friendly interface",
-        )
-        mcp_server.add_tool(
-            lambda path: self.drag(path)
-            or f"Performed drag operation from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
-            "drag",
-            "Drag from point to point along a path",
-        )
-        mcp_server.add_tool(
-            lambda: self.dimensions,
-            "get_dimensions",
-            "Get the screen dimensions (width, height)",
-        )
-        mcp_server.add_tool(
-            lambda display_id: self.set_display(display_id)
-            or f"Display set to {display_id}",
-            "set_display",
-            "Set the X display identifier to use",
+            lambda command_name, **kwargs: self._execute_desktop_command(command_name, **kwargs),
+            name="desktop",
+            description="Execute desktop/VNC commands. Available commands: screenshot, click, double_click, move_mouse, scroll, wait, type_text, key_press, key_press_special, drag, get_dimensions, set_display"
         )
 
-        # Browser tools
+        # Browser unified tool
         mcp_server.add_tool(
-            lambda url: self.browser.goto(url) or f"Navigated to URL: {url}",
-            "browser_goto",
-            "Navigate to a URL in the browser",
-        )
-        mcp_server.add_tool(
-            lambda: self.browser.back() or "Navigated back in browser history",
-            "browser_back",
-            "Go back in browser history",
-        )
-        mcp_server.add_tool(
-            lambda: self.browser.forward() or "Navigated forward in browser history",
-            "browser_forward",
-            "Go forward in browser history",
-        )
-        mcp_server.add_tool(
-            self.browser.get_title, "browser_get_title", "Get the current page title"
-        )
-        mcp_server.add_tool(
-            self.browser.get_current_url, "browser_get_url", "Get the current page URL"
-        )
-        mcp_server.add_tool(
-            self.browser.screenshot,
-            "browser_screenshot",
-            "Take a screenshot of the current page and return as base64-encoded PNG data",
-        )
-        mcp_server.add_tool(
-            lambda x, y, button="left": self.browser.click(x, y, button)
-            or f"{button} click performed in browser at coordinates ({x}, {y})",
-            "browser_click",
-            "Click at specified coordinates in the browser",
-        )
-        mcp_server.add_tool(
-            lambda x, y: self.browser.double_click(x, y)
-            or f"Double-click performed in browser at coordinates ({x}, {y})",
-            "browser_double_click",
-            "Double-click at specified coordinates in the browser",
-        )
-        mcp_server.add_tool(
-            lambda x, y, scroll_x, scroll_y: self.browser.scroll(
-                x, y, scroll_x, scroll_y
-            )
-            or f"Scroll performed in browser at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}",
-            "browser_scroll",
-            "Scroll at specified coordinates in the browser",
-        )
-        mcp_server.add_tool(
-            lambda text: self.browser.type(text) or f"Typed text in browser: '{text}'",
-            "browser_type",
-            "Type the specified text in the browser",
-        )
-        mcp_server.add_tool(
-            lambda key: self.browser.keypress([key])
-            or f"Pressed key in browser: {key}",
-            "browser_keypress",
-            "Press the specified key in the browser, ALWAYS USE THIS TOOL FOR SPECIAL KEYS LIKE arrowleft, enter, esc, etc.",
-        )
-        mcp_server.add_tool(
-            lambda x, y: self.browser.move(x, y)
-            or f"Moved mouse in browser to coordinates ({x}, {y})",
-            "browser_move",
-            "Move mouse to specified coordinates in the browser",
-        )
-        mcp_server.add_tool(
-            lambda path: self.browser.drag(path)
-            or f"Performed drag operation in browser from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})",
-            "browser_drag",
-            "Drag from point to point along a path in the browser",
-        )
-        mcp_server.add_tool(
-            lambda ms=1000: self.browser.wait(ms)
-            or f"Waited for {ms} milliseconds in browser",
-            "browser_wait",
-            "Wait for specified milliseconds in the browser",
-        )
-        mcp_server.add_tool(
-            self.browser.get_html,
-            "browser_get_html",
-            "Get the HTML content of the current page in the browser",
+            lambda command_name, **kwargs: self._execute_browser_command(command_name, **kwargs),
+            name="browser",
+            description="Execute browser commands. Available commands: goto, back, forward, get_title, get_url, screenshot, click, double_click, scroll, type, keypress, move, drag, wait, get_html"
         )
 
-        # Sandbox tools
+        # Sandbox unified tool
         mcp_server.add_tool(
-            self.sandbox.execute_code,
-            "execute_code",
-            "Execute Python code in a Jupyter kernel and return the result",
-        )
-        mcp_server.add_tool(
-            self.sandbox.create_notebook,
-            "create_notebook",
-            "Create a new Jupyter notebook",
-        )
-        mcp_server.add_tool(
-            self.sandbox.add_cell, "add_cell", "Add a cell to a Jupyter notebook"
-        )
-        mcp_server.add_tool(
-            self.sandbox.execute_cell,
-            "execute_cell",
-            "Execute a specific cell in a Jupyter notebook",
-        )
-        mcp_server.add_tool(
-            self.sandbox.list_kernels, "list_kernels", "List available Jupyter kernels"
-        )
-        mcp_server.add_tool(
-            lambda: self.sandbox.jupyter_url,
-            "get_jupyter_url",
-            "Get the Jupyter server URL",
-        )
-        mcp_server.add_tool(
-            lambda timeout=30: self.sandbox.wait_for_service(timeout)
-            or f"Jupyter service ready after waiting up to {timeout} seconds",
-            "wait_for_jupyter",
-            "Wait for Jupyter service to be ready",
-        )
-        mcp_server.add_tool(
-            self.sandbox.start_kernel,
-            "start_kernel",
-            "Start a new kernel with the given name",
+            lambda command_name, **kwargs: self._execute_sandbox_command(command_name, **kwargs),
+            name="sandbox",
+            description="Execute sandbox commands. Available commands: execute_code, create_notebook, add_cell, execute_cell, list_kernels, get_jupyter_url, wait_for_jupyter, start_kernel"
         )
 
         return mcp_server
 
+    def get_mcp_stdio_command(self, file_path=None, object_name=None) -> "list[str]":
+        """
+        Get the command to invoke an MCP server in stdio transport mode.
+
+        This method returns the command array that can be used with subprocess.run()
+        to start the MCP server with stdio transport, allowing clients to
+        communicate with it through stdin/stdout streams.
+
+        Args:
+            file_path: Optional path to the server file
+                      If None, a temporary file will be created with the MCP server
+            object_name: Optional name of the server object in the file
+                        Defaults to None
+
+        Returns:
+            List of strings representing the command to execute
+
+        Raises:
+            NotImplementedError: This method is not yet implemented
+        """
+        raise NotImplementedError("The stdio command generation is not yet implemented")
+
+    def get_mcp_sse_url(self, host=None, port=None) -> "str":
+        """
+        Get the SSE URL for connecting to the MCP server.
+
+        This method returns the URL that clients can use to connect to 
+        the MCP server over SSE transport.
+
+        Args:
+            host: Optional host address (defaults to the computer's IP or 0.0.0.0)
+            port: Optional port number (defaults to 8000)
+
+        Returns:
+            String URL for SSE connection
+        """
+        # Get the MCP server
+        mcp_server = self.mcp()
+
+        # Use specified values or defaults from server settings
+        host = host or mcp_server.settings.host or "0.0.0.0"
+        port = port or mcp_server.settings.port or 8000
+
+        # Return the SSE URL
+        return f"http://{host}:{port}/sse"
+
+    def start_mcp_server(self, transport="sse", host=None, port=None, file_path=None) -> "Union[str, 'subprocess.Popen']":
+        """
+        Start the MCP server with the specified transport.
+
+        This method starts the MCP server either using stdio or SSE transport.
+        For stdio, it returns a subprocess.Popen object.
+        For SSE, it starts the server in a background thread and returns the URL.
+
+        Args:
+            transport: Transport protocol to use ("stdio" or "sse")
+            host: Optional host address for SSE transport
+            port: Optional port number for SSE transport
+            file_path: Optional path to server file for stdio transport
+
+        Returns:
+            For "stdio": a subprocess.Popen object (not implemented yet)
+            For "sse": the URL to connect to the server
+
+        Raises:
+            NotImplementedError: When stdio transport is requested (not yet implemented)
+            ValueError: When an unknown transport is specified
+        """
+        if transport == "stdio":
+            raise NotImplementedError("The stdio server startup is not yet implemented")
+
+        elif transport == "sse":
+            import threading
+
+            # Get the MCP server
+            mcp_server = self.mcp()
+
+            # Set host and port if provided
+            if host:
+                mcp_server.settings.host = host
+            if port:
+                mcp_server.settings.port = port
+
+            # Start the server in a background thread
+            def run_server():
+                import asyncio
+                asyncio.run(mcp_server.run_sse_async())
+
+            server_thread = threading.Thread(target=run_server, daemon=True)
+            server_thread.start()
+
+            # Return the URL for clients to connect
+            url = self.get_mcp_sse_url(
+                host=mcp_server.settings.host,
+                port=mcp_server.settings.port
+            )
+
+            return url
+
+        else:
+            raise ValueError(f"Unknown transport: {transport}. Use 'stdio' or 'sse'.")
+    
+    def _execute_desktop_command(self, command_name, **kwargs):
+        """Execute a desktop/VNC command based on the command_name parameter."""
+
+        if command_name == "screenshot":
+            return self.screenshot()
+
+        elif command_name == "click":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            button = kwargs.get("button", "left")
+            self.click(x, y, button)
+            return f"{button} click performed at coordinates ({x}, {y})"
+
+        elif command_name == "double_click":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            self.double_click(x, y)
+            return f"Double-click performed at coordinates ({x}, {y})"
+
+        elif command_name == "move_mouse":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            self.move_mouse(x, y)
+            return f"Mouse moved to coordinates ({x}, {y})"
+
+        elif command_name == "scroll":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            scroll_x = kwargs.get("scroll_x")
+            scroll_y = kwargs.get("scroll_y")
+            self.scroll(x, y, scroll_x, scroll_y)
+            return f"Scroll performed at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}"
+
+        elif command_name == "wait":
+            ms = kwargs.get("ms", 1000)
+            self.wait(ms)
+            return f"Waited for {ms} milliseconds"
+
+        elif command_name == "type_text":
+            text = kwargs.get("text")
+            self.type_text(text)
+            return f"Typed text: '{text}'"
+
+        elif command_name == "key_press":
+            key_combo = kwargs.get("key_combo")
+            self.key_press(key_combo)
+            return f"Pressed key combination: {key_combo}"
+
+        elif command_name == "key_press_special":
+            keys = kwargs.get("keys")
+            self.key_press_special(keys)
+            return f"Pressed special keys: {', '.join(keys)}"
+
+        elif command_name == "drag":
+            path = kwargs.get("path")
+            self.drag(path)
+            return f"Performed drag operation from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})"
+
+        elif command_name == "get_dimensions":
+            return self.dimensions
+
+        elif command_name == "set_display":
+            display_id = kwargs.get("display_id")
+            self.set_display(display_id)
+            return f"Display set to {display_id}"
+
+        else:
+            raise ValueError(f"Unknown desktop command: {command_name}")
+
+    def _execute_browser_command(self, command_name, **kwargs):
+        """Execute a browser command based on the command_name parameter."""
+
+        if command_name == "goto":
+            url = kwargs.get("url")
+            self.browser.goto(url)
+            return f"Navigated to URL: {url}"
+
+        elif command_name == "back":
+            self.browser.back()
+            return "Navigated back in browser history"
+
+        elif command_name == "forward":
+            self.browser.forward()
+            return "Navigated forward in browser history"
+
+        elif command_name == "get_title":
+            return self.browser.get_title()
+
+        elif command_name == "get_url":
+            return self.browser.get_current_url()
+
+        elif command_name == "screenshot":
+            return self.browser.screenshot()
+
+        elif command_name == "click":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            button = kwargs.get("button", "left")
+            self.browser.click(x, y, button)
+            return f"{button} click performed in browser at coordinates ({x}, {y})"
+
+        elif command_name == "double_click":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            self.browser.double_click(x, y)
+            return f"Double-click performed in browser at coordinates ({x}, {y})"
+
+        elif command_name == "scroll":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            scroll_x = kwargs.get("scroll_x")
+            scroll_y = kwargs.get("scroll_y")
+            self.browser.scroll(x, y, scroll_x, scroll_y)
+            return f"Scroll performed in browser at ({x}, {y}) with horizontal movement of {scroll_x} and vertical movement of {scroll_y}"
+
+        elif command_name == "type":
+            text = kwargs.get("text")
+            self.browser.type(text)
+            return f"Typed text in browser: '{text}'"
+
+        elif command_name == "keypress":
+            key = kwargs.get("key")
+            self.browser.keypress([key])
+            return f"Pressed key in browser: {key}"
+
+        elif command_name == "move":
+            x = kwargs.get("x")
+            y = kwargs.get("y")
+            self.browser.move(x, y)
+            return f"Moved mouse in browser to coordinates ({x}, {y})"
+
+        elif command_name == "drag":
+            path = kwargs.get("path")
+            self.browser.drag(path)
+            return f"Performed drag operation in browser from ({path[0]['x']}, {path[0]['y']}) to ({path[-1]['x']}, {path[-1]['y']})"
+
+        elif command_name == "wait":
+            ms = kwargs.get("ms", 1000)
+            self.browser.wait(ms)
+            return f"Waited for {ms} milliseconds in browser"
+
+        elif command_name == "get_html":
+            return self.browser.get_html()
+
+        else:
+            raise ValueError(f"Unknown browser command: {command_name}")
+
+    def _execute_sandbox_command(self, command_name, **kwargs):
+        """Execute a sandbox command based on the command_name parameter."""
+
+        if command_name == "execute_code":
+            code = kwargs.get("code")
+            timeout = kwargs.get("timeout", 30)
+            return self.sandbox.execute_code(code, timeout)
+
+        elif command_name == "create_notebook":
+            name = kwargs.get("name")
+            return self.sandbox.create_notebook(name)
+
+        elif command_name == "add_cell":
+            notebook_path = kwargs.get("notebook_path")
+            content = kwargs.get("content")
+            cell_type = kwargs.get("cell_type", "code")
+            return self.sandbox.add_cell(notebook_path, content, cell_type)
+
+        elif command_name == "execute_cell":
+            notebook_path = kwargs.get("notebook_path")
+            cell_index = kwargs.get("cell_index")
+            return self.sandbox.execute_cell(notebook_path, cell_index)
+
+        elif command_name == "list_kernels":
+            return self.sandbox.list_kernels()
+
+        elif command_name == "get_jupyter_url":
+            return self.sandbox.jupyter_url
+
+        elif command_name == "wait_for_jupyter":
+            timeout = kwargs.get("timeout", 30)
+            self.sandbox.wait_for_service(timeout)
+            return f"Jupyter service ready after waiting up to {timeout} seconds"
+
+        elif command_name == "start_kernel":
+            kernel_name = kwargs.get("kernel_name", "python3")
+            return self.sandbox.start_kernel(kernel_name)
+
+        else:
+            raise ValueError(f"Unknown sandbox command: {command_name}")
+    
     def as_anthropic_tools(self) -> List[Dict[str, Any]]:
         """
         Convert Computer's MCP tools into Anthropic's function calling format.
@@ -1611,7 +1756,7 @@ class Computer:
         return [
             Computer(Instance.model_validate(instance)._set_api(self._instance._api))
             for instance in instances
-        ]
+        ]    
 
     @classmethod
     def new(
@@ -1621,7 +1766,7 @@ class Computer:
     ) -> Computer:
         client = client or MorphCloudClient()
 
-        snapshot = client.snapshots.list(metadata={"type": "computer-dev"})
+        snapshot = client.snapshots.list(metadata={"type": "computer-dev-04072025"})
 
         if not snapshot:
             raise ValueError("No snapshots available for Computer.")
@@ -1629,11 +1774,46 @@ class Computer:
         # Start a new computer instance
         computer = ComputerAPI(client).start(
             snapshot_id=snapshot[0].id,
-            metadata={"type": "computer-dev"},
+            metadata={"type": "computer-dev-04072025"},
             ttl_seconds=ttl_seconds,
         )
 
         return computer
+
+    def __enter__(self) -> "Computer":
+        """
+        Enter the context manager, allowing the Computer to be used with 'with' statements.
+
+        This enables using the Computer in a context manager pattern, which will automatically
+        shut down the Computer when exiting the context:
+
+        Example:
+            with Computer.new() as computer:
+                # Do operations with the computer
+                computer.browser.goto("https://example.com")
+                # Computer will be automatically shut down when exiting this block
+
+        Returns:
+            The Computer instance itself for method chaining
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """
+        Exit the context manager, shutting down the Computer instance.
+
+        This method is called automatically when exiting a 'with' block.
+        It ensures the Computer is properly shut down, even if an exception occurs.
+
+        Args:
+            exc_type: The exception type, if an exception was raised in the context
+            exc_val: The exception value, if an exception was raised in the context
+            exc_tb: The traceback, if an exception was raised in the context
+
+        Returns:
+            None
+        """
+        self.shutdown()    
 
 
 class ComputerAPI:
@@ -1668,7 +1848,7 @@ class ComputerAPI:
         if snapshot.metadata.get("type") != "computer-dev":
             raise ValueError(
                 f"Snapshot {snapshot_id} is not a valid Computer snapshot. "
-                f"Only snapshots with metadata 'type=computer-dev' can be used with Computer API."
+                f"Only snapshots with metadata 'type=computer-dev-04072025' can be used with Computer API."
             )
 
         return snapshot

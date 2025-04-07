@@ -1199,6 +1199,183 @@ class Instance(BaseModel):
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.astop()
 
+    def as_container(
+        self, 
+        image: str, 
+        container_name: str = "container", 
+        command: str = "tail -f /dev/null", 
+        container_args: typing.Optional[typing.List[str]] = None,
+        ports: typing.Optional[typing.Dict[int, int]] = None,
+        volumes: typing.Optional[typing.List[str]] = None,
+        env: typing.Optional[typing.Dict[str, str]] = None,
+        restart_policy: str = "unless-stopped"
+    ) -> None:
+        """
+        Configure the instance to redirect all SSH connections to a Docker container.
+
+        This method:
+        1. Ensures Docker is running on the instance
+        2. Runs the specified Docker container
+        3. Configures SSH to redirect all commands to the container
+
+        After calling this method, all SSH connections and commands will be passed
+        through to the container rather than the host VM.
+
+        Parameters:
+            image: The Docker image to run (e.g. "ubuntu:latest", "postgres:13")
+            container_name: The name to give the container (default: "container")
+            command: The command to run in the container (default: "tail -f /dev/null")
+            container_args: Additional arguments to pass to "docker run"
+            ports: Dictionary mapping host ports to container ports
+            volumes: List of volume mounts (e.g. ["/host/path:/container/path"])
+            env: Dictionary of environment variables to set in the container
+            restart_policy: Container restart policy (default: "unless-stopped")
+
+        Returns:
+            None
+        """
+        # Make sure the instance is ready
+        self.wait_until_ready()
+
+        # Establish SSH connection
+        with self.ssh() as ssh:
+            # Verify docker is running
+            result = ssh.run(["systemctl", "is-active", "docker"])
+            if result.exit_code != 0:
+                console.print("[yellow]Docker not active, starting Docker service...[/yellow]")
+                ssh.run(["systemctl", "start", "docker.service"])
+                ssh.run(["systemctl", "start", "containerd.service"])
+
+            # Build docker run command
+            docker_cmd = ["docker", "run", "-d", "--name", container_name]
+
+            # Add restart policy
+            docker_cmd.extend(["--restart", restart_policy])
+
+            # Add port mappings if provided
+            if ports:
+                for host_port, container_port in ports.items():
+                    docker_cmd.extend(["-p", f"{host_port}:{container_port}"])
+
+            # Add volume mounts if provided
+            if volumes:
+                for volume in volumes:
+                    docker_cmd.extend(["-v", volume])
+
+            # Add environment variables if provided
+            if env:
+                for key, value in env.items():
+                    docker_cmd.extend(["-e", f"{key}={value}"])
+
+            # Add any additional docker run arguments
+            if container_args:
+                docker_cmd.extend(container_args)
+
+            # Add the image and command
+            docker_cmd.append(image)
+
+            # Split the command if it's a string
+            if isinstance(command, str):
+                docker_cmd.extend(command.split())
+            else:
+                docker_cmd.extend(command)
+
+            # Run the docker container
+            console.print(f"[blue]Starting container '{container_name}' from image '{image}'...[/blue]")
+            console.print(f"[blue]{docker_cmd=}[/blue]")
+            result = ssh.run(docker_cmd)
+            if result.exit_code != 0:
+                error_msg = f"Failed to start container: {result.stderr}"
+                console.print(f"[bold red]{error_msg}[/bold red]")
+                raise RuntimeError(error_msg)
+
+            # Create container.sh script
+            container_script = """#!/bin/bash
+
+# container.sh - Redirects SSH commands to the Docker container
+CONTAINER_NAME="{container_name}"
+
+if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
+    exec docker exec -it "$CONTAINER_NAME" /bin/bash -l
+else
+    exec docker exec -it "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+fi""".format(container_name=container_name)
+
+            # Write the container.sh script to the instance
+            console.print("[blue]Installing container redirection script...[/blue]")
+            ssh.write_file("/root/container.sh", container_script)
+            ssh.run(["chmod", "+x", "/root/container.sh"])
+
+            # Update SSH configuration to force commands through the script
+            console.print("[blue]Configuring SSH to redirect to container...[/blue]")
+
+            # Check if ForceCommand already exists in sshd_config
+            grep_result = ssh.run("grep -q '^ForceCommand' /etc/ssh/sshd_config")
+
+            if grep_result.exit_code == 0:
+                # ForceCommand already exists, update it
+                ssh.run("sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config")
+            else:
+                # Add ForceCommand to the end of sshd_config
+                ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
+
+            # Restart SSH service
+            console.print("[blue]Restarting SSH service...[/blue]")
+            ssh.run(["systemctl", "restart", "sshd"])
+
+        console.print(f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]")
+        console.print("[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]")
+
+    async def aas_container(
+        self, 
+        image: str, 
+        container_name: str = "container", 
+        command: str = "tail -f /dev/null", 
+        container_args: typing.Optional[typing.List[str]] = None,
+        ports: typing.Optional[typing.Dict[int, int]] = None,
+        volumes: typing.Optional[typing.List[str]] = None,
+        env: typing.Optional[typing.Dict[str, str]] = None,
+        restart_policy: str = "unless-stopped"
+    ) -> None:
+        """
+        Async version of as_container. Configure the instance to redirect all SSH connections to a Docker container.
+
+        This method:
+        1. Ensures Docker is running on the instance
+        2. Runs the specified Docker container
+        3. Configures SSH to redirect all commands to the container
+
+        After calling this method, all SSH connections and commands will be passed
+        through to the container rather than the host VM.
+
+        Parameters:
+            image: The Docker image to run (e.g. "ubuntu:latest", "postgres:13")
+            container_name: The name to give the container (default: "container")
+            command: The command to run in the container (default: "tail -f /dev/null")
+            container_args: Additional arguments to pass to "docker run"
+            ports: Dictionary mapping host ports to container ports
+            volumes: List of volume mounts (e.g. ["/host/path:/container/path"])
+            env: Dictionary of environment variables to set in the container
+            restart_policy: Container restart policy (default: "unless-stopped")
+
+        Returns:
+            None
+        """
+        await self.await_until_ready()
+
+        # Run the synchronous version in a thread pool
+        return await asyncio.to_thread(
+            self.as_container,
+            image=image,
+            container_name=container_name,
+            command=command,
+            container_args=container_args,
+            ports=ports,
+            volumes=volumes,
+            env=env,
+            restart_policy=restart_policy
+        )        
+
 
 # Helper functions
 import click

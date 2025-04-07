@@ -496,6 +496,61 @@ class SSHClient:
     def interactive_shell(self, command: typing.Optional[str] = None):
         return _interactive_shell(self._client, command)
 
+    def write_file(
+        self,
+        remote_path: str,
+        content: typing.Union[str, bytes],
+        mode: int = 0o644
+    ) -> None:
+        """
+        Write content directly to a file on the remote machine.
+
+        Parameters:
+            remote_path: Path to the remote file
+            content: Content to write (string or bytes)
+            mode: File permissions (default: 0o644)
+        """
+        sftp = self._client.open_sftp()
+        try:
+            # Convert string to bytes if needed
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+
+            # Create a temporary file-like object
+            with sftp.open(remote_path, 'wb') as f:
+                f.write(content)
+
+            # Set file permissions
+            sftp.chmod(remote_path, mode)
+        finally:
+            sftp.close()
+
+    def read_file(
+        self,
+        remote_path: str,
+        binary: bool = False
+    ) -> typing.Union[str, bytes]:
+        """
+        Read content from a file on the remote machine.
+
+        Parameters:
+            remote_path: Path to the remote file
+            binary: If True, return bytes; otherwise, return string (default: False)
+
+        Returns:
+            File content as string or bytes
+        """
+        sftp = self._client.open_sftp()
+        try:
+            with sftp.open(remote_path, 'rb') as f:
+                content = f.read()
+
+            if binary:
+                return content
+            return content.decode('utf-8', errors='replace')
+        finally:
+            sftp.close()    
+
     def __enter__(self):
         return self
 
