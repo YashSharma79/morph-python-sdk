@@ -1487,32 +1487,54 @@ class Instance(BaseModel):
                 console.print(f"[bold red]{error_msg}[/bold red]")
                 raise RuntimeError(error_msg)
 
-            # Create container.sh script
-            container_script = """#!/bin/bash
+            # Create improved container.sh script with TTY detection
+            container_script = f"""#!/bin/bash
 
 # container.sh - Redirects SSH commands to the Docker container
 CONTAINER_NAME="{container_name}"
 
+# Function to check if the container has the specified shell
+check_shell() {{
+    if docker exec "$CONTAINER_NAME" which "$1" >/dev/null 2>&1; then
+        echo "$1"
+        return 0
+    fi
+    return 1
+}}
+
+# Determine the best shell available in the container
+SHELL_TO_USE=""
+for shell in bash sh ash; do
+    if SHELL_PATH=$(check_shell "$shell"); then
+        SHELL_TO_USE="$SHELL_PATH"
+        break
+    fi
+done
+
+# If no shell was found, fail gracefully
+if [ -z "$SHELL_TO_USE" ]; then
+    echo "Error: No usable shell found in container. Container might be too minimal." >&2
+    exit 1
+fi
+
 if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
-    # Interactive shell login - TTY is needed
-    exec docker exec -it "$CONTAINER_NAME" /bin/bash -l
+    # Interactive login shell - use -it flags
+    exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -l
 else
-    # Command execution - Only use -it if we have a TTY
+    # Command execution - detect if TTY is available
     if [ -t 0 ]; then
         # TTY is available, use interactive mode
-        exec docker exec -it "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+        exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -lc "$SSH_ORIGINAL_COMMAND"
     else
         # No TTY available, run without -it flags
-        exec docker exec "$CONTAINER_NAME" /bin/bash -lc "$SSH_ORIGINAL_COMMAND"
+        # This prevents hanging in non-interactive scenarios
+        exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -lc "$SSH_ORIGINAL_COMMAND"
     fi
-fi""".format(
-                container_name=container_name
-            )
+fi"""
 
-            # Write the container.sh script to the instance
+            # Write the container.sh script to the instance using our new write_file method
             console.print("[blue]Installing container redirection script...[/blue]")
-            ssh.write_file("/root/container.sh", container_script)
-            ssh.run(["chmod", "+x", "/root/container.sh"])
+            ssh.write_file("/root/container.sh", container_script, mode=0o755)  # Using 0o755 to make it executable
 
             # Update SSH configuration to force commands through the script
             console.print("[blue]Configuring SSH to redirect to container...[/blue]")
@@ -1520,27 +1542,26 @@ fi""".format(
             # Check if ForceCommand already exists in sshd_config
             grep_result = ssh.run("grep -q '^ForceCommand' /etc/ssh/sshd_config")
 
-            if grep_result.exit_code == 0:
+            if grep_result.returncode == 0:
                 # ForceCommand already exists, update it
-                ssh.run(
-                    "sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config"
-                )
+                ssh.run("sed -i 's|^ForceCommand.*|ForceCommand /root/container.sh|' /etc/ssh/sshd_config")
             else:
                 # Add ForceCommand to the end of sshd_config
-                ssh.run(
-                    'echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config'
-                )
+                ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
 
             # Restart SSH service
             console.print("[blue]Restarting SSH service...[/blue]")
             ssh.run(["systemctl", "restart", "sshd"])
 
-        console.print(
-            f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]"
-        )
-        console.print(
-            "[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]"
-        )
+            # Test the container setup
+            console.print("[blue]Testing container connectivity...[/blue]")
+            test_result = ssh.run('echo "Container setup test"')
+            if test_result.returncode != 0:
+                console.print("[yellow]Warning: Container setup test returned non-zero exit code. Check container configuration.[/yellow]")
+
+        console.print(f"[bold green]✅ Instance now redirects all SSH sessions to the '{container_name}' container[/bold green]")
+        console.print("[dim]Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.[/dim]")
+
 
     async def aas_container(
         self,
