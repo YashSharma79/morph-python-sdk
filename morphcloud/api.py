@@ -591,9 +591,7 @@ class Snapshot(BaseModel):
 
     def setup(self, command: str) -> Snapshot:
         """
-        Run a command (with get_pty=True, in the foreground) on top of this snapshot.
-        Returns a new snapshot that includes the modifications from that command.
-        Uses _cache_effect(...) to avoid re-building if an identical effect was applied before.
+        Deprecated, use `Snapshot.exec` instead
         """
         return self._cache_effect(
             fn=self._run_command_effect,
@@ -603,6 +601,11 @@ class Snapshot(BaseModel):
         )
 
     def exec(self, command: str) -> Snapshot:
+        """
+        Run a command (with get_pty=True, in the foreground) on top of this snapshot.
+        Returns a new snapshot that includes the modifications from that command.
+        Uses _cache_effect(...) to avoid re-building if an identical effect was applied before.
+        """
         return self.setup(command)
 
     async def aexec(self, command: str) -> Snapshot:

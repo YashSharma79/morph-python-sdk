@@ -236,33 +236,9 @@ class Browser:
         html_content = self._page.content()
         return html_content
 
-    def _get_browser_ws_endpoint(self, cdp_url: str, timeout_seconds: int = 15) -> str:
-        """
-        Same logic as before to parse /json/version -> webSocketDebuggerUrl
-        """
-        cdp_url = cdp_url.rstrip("/")
-        json_version_url = f"{cdp_url}/json/version"
-        start_time = time.time()
-        base_delay = 0.5
-        errors = []
-        retry_count = 0
-
-        while time.time() - start_time < timeout_seconds:
-            retry_count += 1
-            delay = min(base_delay * retry_count, 2.0)
-            try:
-                resp = requests.get(json_version_url, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    ws_url = data.get("webSocketDebuggerUrl")
-                    if ws_url:
-                        return ws_url
-            except Exception as e:
-                errors.append(str(e))
-            time.sleep(delay)
-
-        err_msg = "; ".join(errors[-3:]) if errors else "No specific errors"
-        raise TimeoutError(f"Failed to get WebSocketDebuggerUrl: {err_msg}")
+    @property
+    def cdp_url(self):
+        return self._computer.cdp_url
 
     # ----------------------------------------------------------------
     # Public methods: synchronous, but run in the thread pool
@@ -291,7 +267,8 @@ class Browser:
         if self._connected:
             return
         self._playwright = sync_playwright().start()
-        ws_url = self._get_browser_ws_endpoint(cdp_url)
+        # No need to convert to WebSocket URL anymore
+        ws_url = cdp_url  # Already the WebSocket URL
         self._browser = self._playwright.chromium.connect_over_cdp(ws_url)
         self._context = self._browser.new_context()
         self._page = self._context.new_page()
@@ -1023,21 +1000,51 @@ class Computer:
     @property
     def cdp_url(self) -> Optional[str]:
         """
-        Get the Chrome DevTools Protocol URL for this computer.
-
-        This property looks for a service named "web" in the computer's
-        HTTP services which should provide the Chrome DevTools Protocol endpoint.
+        Get the Chrome DevTools Protocol WebSocket URL for this computer.
 
         Returns:
-            URL string to the CDP endpoint, or None if not found
+            WebSocket URL string to connect to CDP, or None if not found
         """
         self._instance.wait_until_ready()
         for service in self._instance.networking.http_services:
             if service.name == "web":
-                return service.url
-
+                http_url = service.url
+                # Get the WebSocket URL directly
+                try:
+                    return self._get_browser_ws_endpoint(http_url)
+                except Exception as e:
+                    print(f"Failed to get WebSocket URL: {str(e)}")
+                    return None
         # No CDP service found
         return None
+
+    def _get_browser_ws_endpoint(self, cdp_url: str, timeout_seconds: int = 15) -> str:
+        """
+        Get the WebSocket debugger URL from the CDP HTTP endpoint.
+        """
+        cdp_url = cdp_url.rstrip("/")
+        json_version_url = f"{cdp_url}/json/version"
+        start_time = time.time()
+        base_delay = 0.5
+        errors = []
+        retry_count = 0
+
+        while time.time() - start_time < timeout_seconds:
+            retry_count += 1
+            delay = min(base_delay * retry_count, 2.0)
+            try:
+                resp = requests.get(json_version_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    ws_url = data.get("webSocketDebuggerUrl")
+                    if ws_url:
+                        return ws_url
+            except Exception as e:
+                errors.append(str(e))
+            time.sleep(delay)
+
+        err_msg = "; ".join(errors[-3:]) if errors else "No specific errors"
+        raise TimeoutError(f"Failed to get WebSocketDebuggerUrl: {err_msg}")
 
     @property
     def display(self) -> str:
