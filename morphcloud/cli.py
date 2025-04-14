@@ -1,4 +1,4 @@
-# Replace the imports at the top of morphcloud/cli.py
+# morphcloud/cli.py
 import datetime
 import importlib.metadata
 import json
