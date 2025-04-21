@@ -32,7 +32,15 @@ For comprehensive documentation, visit the [Morph Cloud Documentation](https://c
 ### Installation
 
 ```bash
-pip install morphcloud
+# requires python3.11 or newer 
+# create a new virtual environment
+python -m venv .venv     
+
+# activate the new virtual environment
+source .venv/bin/activate 
+
+# install morphcloud
+pip install morphcloud    
 ```
 
 ### Configuration
