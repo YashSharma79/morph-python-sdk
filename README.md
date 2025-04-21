@@ -62,26 +62,37 @@ from morphcloud.api import MorphCloudClient
 client = MorphCloudClient()
 
 # List available base images
+print("\n\nAvailable base images:")
 images = client.images.list()
 for image in images:
-    print(f"{image.id}: {image.name}")
+    print(f"  {image.id}:\t{image.name}")
 
 # Create a snapshot from a base image
+print("\nCreating snapshot from base image...", end="")
 snapshot = client.snapshots.create(
     image_id="morphvm-minimal",
     vcpus=1,
     memory=512,
     disk_size=1024
 )
+print("done")
 
 # Start an instance from the snapshot
+print("Starting instance from snapshot.....", end="")
 instance = client.instances.start(snapshot_id=snapshot.id)
+print("done")
+
 
 # Wait for the instance to be ready
+print("Waiting until instance is ready.....", end="")
 instance.wait_until_ready()
+print("done")
+
 
 # Stop the instance when done
+print("Stopping the instance...............", end="")
 instance.stop()
+print("done\n")
 ```
 
 ### Working with SSH
