@@ -1242,5 +1242,47 @@ def computer(instance_id):
         handle_api_error(e)
 
 
+@instance.command("boot")
+@click.argument("snapshot_id")
+@click.option("--vcpus", type=int, required=False)
+@click.option("--memory", type=int, required=False)
+@click.option("--disk-size", type=int, required=False)
+@click.option("--metadata", "-m", "metadata_options", multiple=True)
+def boot_instance(
+    snapshot_id, vcpus, memory, disk_size, metadata_options
+):
+    """Boot a new instance from a snapshot."""
+    client = get_client()
+    try:
+        metadata_dict = {}
+        for meta in metadata_options:
+            if "=" not in meta:
+                raise click.UsageError("Metadata must be key=value.")
+            k, v = meta.split("=", 1)
+            metadata_dict[k] = v
+
+        with Spinner(
+            text=f"Booting instance from snapshot {snapshot_id}...",
+            success_text="Instance boot complete!",
+            success_emoji="🚀",
+        ):
+            new_instance = client.instances.boot(
+                snapshot_id=snapshot_id,
+                vcpus=vcpus,
+                memory=memory,
+                disk_size=disk_size,
+                metadata=metadata_dict if metadata_dict else None,
+            )
+
+        click.secho(f"Instance booted: {new_instance.id}", fg="green")
+    except api.ApiError as e:
+        if e.status_code == 404:
+            click.echo(f"Error: Snapshot '{snapshot_id}' not found.", err=True)
+            sys.exit(1)
+        else:
+            handle_api_error(e)
+    except Exception as e:
+        handle_api_error(e)
+
 if __name__ == "__main__":
     cli()

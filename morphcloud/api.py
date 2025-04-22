@@ -941,6 +941,40 @@ class InstanceAPI(BaseAPI):
         )
         response.raise_for_status()
 
+    def boot(self, snapshot_id: str, vcpus: typing.Optional[int] = None, memory: typing.Optional[int] = None, disk_size: typing.Optional[int] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Instance:
+        """Boot an instance from a snapshot."""
+        body = {}
+        if vcpus is not None:
+            body["vcpus"] = vcpus
+        if memory is not None:
+            body["memory"] = memory
+        if disk_size is not None:
+            body["disk_size"] = disk_size
+        if metadata is not None:
+            body["metadata"] = metadata
+        response = self._client._http_client.post(
+            f"/snapshot/{snapshot_id}/boot",
+            json=body,
+        )
+        return Instance.model_validate(response.json())._set_api(self)
+
+    async def aboot(self, snapshot_id: str, vcpus: typing.Optional[int] = None, memory: typing.Optional[int] = None, disk_size: typing.Optional[int] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Instance:
+        """Boot an instance from a snapshot."""
+        body = {}
+        if vcpus is not None:
+            body["vcpus"] = vcpus
+        if memory is not None:
+            body["memory"] = memory
+        if disk_size is not None:
+            body["disk_size"] = disk_size
+        if metadata is not None:
+            body["metadata"] = metadata
+        response = await self._client._async_http_client.post(
+            f"/snapshot/{snapshot_id}/boot",
+            json=body,
+        )
+        return Instance.model_validate(response.json())._set_api(self)
+
 
 class Instance(BaseModel):
     _api: InstanceAPI = PrivateAttr()
@@ -1019,6 +1053,20 @@ class Instance(BaseModel):
         return Snapshot.model_validate(response.json())._set_api(
             self._api._client.snapshots
         )
+
+    def reboot(self) -> None:
+        """Reboot the instance."""
+        response = self._api._client._http_client.post(f"/instance/{self.id}/reboot")
+        response.raise_for_status()
+        self._refresh()
+
+    async def areboot(self) -> None:
+        """Reboot the instance."""
+        response = await self._api._client._async_http_client.post(
+            f"/instance/{self.id}/reboot"
+        )
+        response.raise_for_status()
+        await self._refresh_async()
 
     def branch(self, count: int) -> typing.Tuple[Snapshot, typing.List[Instance]]:
         """Branch the instance into multiple copies in parallel."""
