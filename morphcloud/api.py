@@ -1679,10 +1679,11 @@ fi"""
             env=env,
             restart_policy=restart_policy,
         )
+
     def update_ttl(
         self,
         ttl_seconds: int,
-        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None
+        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None,
     ) -> None:
         """
         Update the TTL (Time To Live) for the instance.
@@ -1698,9 +1699,7 @@ fi"""
         Returns:
             None
         """
-        payload = {
-            "ttl_seconds": ttl_seconds
-        }
+        payload = {"ttl_seconds": ttl_seconds}
         if ttl_action is not None:
             payload["ttl_action"] = ttl_action
 
@@ -1714,7 +1713,7 @@ fi"""
     async def aupdate_ttl(
         self,
         ttl_seconds: int,
-        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None
+        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None,
     ) -> None:
         """
         Asynchronously update the TTL (Time To Live) for the instance.
@@ -1730,9 +1729,7 @@ fi"""
         Returns:
             None
         """
-        payload = {
-            "ttl_seconds": ttl_seconds
-        }
+        payload = {"ttl_seconds": ttl_seconds}
         if ttl_action is not None:
             payload["ttl_action"] = ttl_action
 
