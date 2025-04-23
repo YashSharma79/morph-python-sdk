@@ -1,4 +1,4 @@
-.PHONY: deploy format check-undefined increment-version release trigger-workflow get-version
+.PHONY: deploy format commit-format check-undefined increment-version release trigger-workflow get-version
 
 # Default Python interpreter
 PYTHON := uv run python
@@ -7,13 +7,20 @@ GIT_FILES := $(shell git ls-files "./morphcloud")
 # Helper function to extract the version, defined once and reusable
 get_current_version = $(shell grep -oP 'version = "\K[^"]+' pyproject.toml)
 
-deploy: format check-undefined increment-version release trigger-workflow
+deploy: format commit-format check-undefined increment-version release trigger-workflow
 
 # Format code with black and isort
 format:
 	@echo "Formatting code with black and isort..."
 	uv run black ./morphcloud
 	uv run isort ./morphcloud
+
+# Commit formatted changes (only already‑tracked files)
+commit-format:
+	@echo "Staging formatted files already tracked..."
+	@git add -u ./morphcloud
+	@# Only create a commit if something is staged
+	@git diff --cached --quiet && echo "No formatting changes to commit." || git commit -m "chore: format"
 
 # Check for undefined variables in all git-tracked files
 check-undefined:
