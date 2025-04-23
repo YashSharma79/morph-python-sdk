@@ -1679,6 +1679,69 @@ fi"""
             env=env,
             restart_policy=restart_policy,
         )
+    def update_ttl(
+        self,
+        ttl_seconds: int,
+        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None
+    ) -> None:
+        """
+        Update the TTL (Time To Live) for the instance.
+
+        This method allows you to reset the expiration time for an instance, which will be
+        calculated as the current server time plus the provided TTL seconds.
+
+        Parameters:
+            ttl_seconds: New TTL in seconds
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+                       If not provided, the current action will be maintained.
+
+        Returns:
+            None
+        """
+        payload = {
+            "ttl_seconds": ttl_seconds
+        }
+        if ttl_action is not None:
+            payload["ttl_action"] = ttl_action
+
+        response = self._api._client._http_client.post(
+            f"/instance/{self.id}/ttl",
+            json=payload,
+        )
+        response.raise_for_status()
+        self._refresh()
+
+    async def aupdate_ttl(
+        self,
+        ttl_seconds: int,
+        ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None
+    ) -> None:
+        """
+        Asynchronously update the TTL (Time To Live) for the instance.
+
+        This method allows you to reset the expiration time for an instance, which will be
+        calculated as the current server time plus the provided TTL seconds.
+
+        Parameters:
+            ttl_seconds: New TTL in seconds
+            ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+                       If not provided, the current action will be maintained.
+
+        Returns:
+            None
+        """
+        payload = {
+            "ttl_seconds": ttl_seconds
+        }
+        if ttl_action is not None:
+            payload["ttl_action"] = ttl_action
+
+        response = await self._api._client._async_http_client.post(
+            f"/instance/{self.id}/ttl",
+            json=payload,
+        )
+        response.raise_for_status()
+        await self._refresh_async()
 
 
 # Helper functions
