@@ -1694,7 +1694,7 @@ fi"""
             restart_policy=restart_policy,
         )
 
-    def update_ttl(
+    def set_ttl(
         self,
         ttl_seconds: int,
         ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None,
@@ -1724,7 +1724,7 @@ fi"""
         response.raise_for_status()
         self._refresh()
 
-    async def aupdate_ttl(
+    async def aset_ttl(
         self,
         ttl_seconds: int,
         ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = None,

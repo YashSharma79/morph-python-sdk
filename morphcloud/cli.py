@@ -938,6 +938,51 @@ def set_instance_metadata(instance_id, metadata_args):
         handle_api_error(e)
 
 
+@instance.command("set-ttl")
+@click.argument("instance_id")
+@click.option(
+    "--ttl-seconds", type=int, required=True, help="Time-to-live in seconds."
+)
+@click.option(
+    "--ttl-action",
+    type=click.Choice(["stop", "pause"]),
+    required=False,
+    help="Action when TTL expires.",
+    default="stop",
+)
+def set_instance_ttl(instance_id, ttl_seconds, ttl_action):
+    """
+    Set a time-to-live (TTL) for an instance.
+    The instance will be stopped or paused when the TTL expires.
+    """
+    client = get_client()
+    try:
+        instance_obj = client.instances.get(instance_id)
+        if instance_obj.status != api.InstanceStatus.READY:
+            click.echo(
+                f"Error: Instance must be READY to set TTL. Current: {instance_obj.status.value}",
+                err=True,
+            )
+            sys.exit(1)
+
+        with Spinner(
+            text=f"Setting TTL for {instance_id} to {ttl_seconds} seconds...",
+            success_text="TTL set successfully!",
+            success_emoji="⏳",
+        ):
+            instance_obj.set_ttl(ttl_seconds, ttl_action)
+
+        click.echo(f"TTL set for {instance_id}: {ttl_seconds} seconds")
+    except api.ApiError as e:
+        if e.status_code == 404:
+            click.echo(f"Error: Instance '{instance_id}' not found.", err=True)
+            sys.exit(1)
+        else:
+            handle_api_error(e)
+    except Exception as e:
+        handle_api_error(e)
+
+
 @instance.command("ssh")
 @click.argument("instance_id")
 @click.option("--rm", is_flag=True, default=False, help="Stop the instance after SSH.")
