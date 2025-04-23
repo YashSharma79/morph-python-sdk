@@ -16,7 +16,8 @@ import requests
 import websocket
 from playwright.sync_api import sync_playwright
 
-from morphcloud.api import Instance, InstanceAPI, MorphCloudClient, Snapshot, ApiError
+from morphcloud.api import (ApiError, Instance, InstanceAPI, MorphCloudClient,
+                            Snapshot)
 
 _websockets_available = importlib.util.find_spec("websockets") is not None
 _jupyter_client_available = importlib.util.find_spec("jupyter_client") is not None
@@ -1914,7 +1915,7 @@ class ComputerAPI:
             Instance.model_validate(response.json())._set_api(self._client.instances)
         )
 
-# Inside the ComputerAPI class in morphcloud/computer/_computer.py
+    # Inside the ComputerAPI class in morphcloud/computer/_computer.py
 
     def _verify_instance_is_computer(self, instance: Instance) -> bool:
         """
@@ -1948,11 +1949,15 @@ class ComputerAPI:
             # Or other API errors during snapshot retrieval.
             # Log this issue if necessary, but for filtering purposes,
             # treat it as not a valid computer.
-            print(f"Warning: Could not verify snapshot {instance.refs.snapshot_id} for instance {instance.id}: {e}")
+            print(
+                f"Warning: Could not verify snapshot {instance.refs.snapshot_id} for instance {instance.id}: {e}"
+            )
             return False
         except Exception as e:
             # Catch other potential errors
-            print(f"Warning: Unexpected error verifying snapshot for instance {instance.id}: {e}")
+            print(
+                f"Warning: Unexpected error verifying snapshot for instance {instance.id}: {e}"
+            )
             return False
 
     def list(self, metadata: Optional[Dict[str, str]] = None) -> List[Computer]:
@@ -1968,15 +1973,19 @@ class ComputerAPI:
         for instance_data in instances_data:
             try:
                 # Create the Instance object
-                inst = Instance.model_validate(instance_data)._set_api(self._client.instances)
+                inst = Instance.model_validate(instance_data)._set_api(
+                    self._client.instances
+                )
 
                 # Verify if it's a computer using the implemented method
                 if self._verify_instance_is_computer(inst):
                     # If valid, wrap it in a Computer object and add to the list
-                    computers_list.append(Computer(inst)) # No need to call _set_api again here, Computer init handles it if needed.
+                    computers_list.append(
+                        Computer(inst)
+                    )  # No need to call _set_api again here, Computer init handles it if needed.
             except Exception as e:
                 # Log or handle potential validation errors for individual instances
                 print(f"Warning: Skipping instance due to error during processing: {e}")
-                continue # Skip this instance and proceed to the next one
+                continue  # Skip this instance and proceed to the next one
 
         return computers_list
