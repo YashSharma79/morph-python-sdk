@@ -1,1 +1,1 @@
-from ._computer import Computer
+from ._computer import Computer, ComputerAPI

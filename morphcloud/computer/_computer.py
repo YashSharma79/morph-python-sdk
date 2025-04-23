@@ -16,7 +16,7 @@ import requests
 import websocket
 from playwright.sync_api import sync_playwright
 
-from morphcloud.api import Instance, InstanceAPI, MorphCloudClient, Snapshot
+from morphcloud.api import Instance, InstanceAPI, MorphCloudClient, Snapshot, ApiError
 
 _websockets_available = importlib.util.find_spec("websockets") is not None
 _jupyter_client_available = importlib.util.find_spec("jupyter_client") is not None
@@ -1914,13 +1914,69 @@ class ComputerAPI:
             Instance.model_validate(response.json())._set_api(self._client.instances)
         )
 
+# Inside the ComputerAPI class in morphcloud/computer/_computer.py
+
+    def _verify_instance_is_computer(self, instance: Instance) -> bool:
+        """
+        Verify that an instance is based on a valid Computer snapshot
+        by checking the snapshot's metadata.
+
+        Args:
+            instance: The Instance object to verify.
+
+        Returns:
+            True if the instance is based on a Computer snapshot, False otherwise.
+        """
+        if not instance or not instance.refs or not instance.refs.snapshot_id:
+            # Cannot verify if snapshot reference is missing
+            return False
+
+        try:
+            # Get the snapshot ID from the instance references
+            snapshot_id = instance.refs.snapshot_id
+            # Fetch the snapshot details using the client's snapshot API
+            snapshot = self._client.snapshots.get(snapshot_id)
+
+            # Check if the snapshot has the required metadata tag
+            if snapshot.metadata.get("type") == "computer-dev-04072025":
+                return True
+            else:
+                # Metadata doesn't match
+                return False
+        except ApiError as e:
+            # Handle cases where the snapshot might not be found (e.g., deleted)
+            # Or other API errors during snapshot retrieval.
+            # Log this issue if necessary, but for filtering purposes,
+            # treat it as not a valid computer.
+            print(f"Warning: Could not verify snapshot {instance.refs.snapshot_id} for instance {instance.id}: {e}")
+            return False
+        except Exception as e:
+            # Catch other potential errors
+            print(f"Warning: Unexpected error verifying snapshot for instance {instance.id}: {e}")
+            return False
+
     def list(self, metadata: Optional[Dict[str, str]] = None) -> List[Computer]:
-        """List all computers available to the user."""
+        """List all computers available to the user, filtering by snapshot metadata."""
+        # Fetch all instances matching the optional metadata filter
         response = self._client._http_client.get(
             "/instance",
             params={f"metadata[{k}]": v for k, v in (metadata or {}).items()},
         )
-        return [
-            Computer(Instance.model_validate(instance)._set_api(self._client.instances))
-            for instance in response.json()["data"]
-        ]
+        instances_data = response.json()["data"]
+
+        computers_list = []
+        for instance_data in instances_data:
+            try:
+                # Create the Instance object
+                inst = Instance.model_validate(instance_data)._set_api(self._client.instances)
+
+                # Verify if it's a computer using the implemented method
+                if self._verify_instance_is_computer(inst):
+                    # If valid, wrap it in a Computer object and add to the list
+                    computers_list.append(Computer(inst)) # No need to call _set_api again here, Computer init handles it if needed.
+            except Exception as e:
+                # Log or handle potential validation errors for individual instances
+                print(f"Warning: Skipping instance due to error during processing: {e}")
+                continue # Skip this instance and proceed to the next one
+
+        return computers_list
