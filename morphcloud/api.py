@@ -941,7 +941,14 @@ class InstanceAPI(BaseAPI):
         )
         response.raise_for_status()
 
-    def boot(self, snapshot_id: str, vcpus: typing.Optional[int] = None, memory: typing.Optional[int] = None, disk_size: typing.Optional[int] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Instance:
+    def boot(
+        self,
+        snapshot_id: str,
+        vcpus: typing.Optional[int] = None,
+        memory: typing.Optional[int] = None,
+        disk_size: typing.Optional[int] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> Instance:
         """Boot an instance from a snapshot."""
         body = {}
         if vcpus is not None:
@@ -958,7 +965,14 @@ class InstanceAPI(BaseAPI):
         )
         return Instance.model_validate(response.json())._set_api(self)
 
-    async def aboot(self, snapshot_id: str, vcpus: typing.Optional[int] = None, memory: typing.Optional[int] = None, disk_size: typing.Optional[int] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Instance:
+    async def aboot(
+        self,
+        snapshot_id: str,
+        vcpus: typing.Optional[int] = None,
+        memory: typing.Optional[int] = None,
+        disk_size: typing.Optional[int] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> Instance:
         """Boot an instance from a snapshot."""
         body = {}
         if vcpus is not None:
