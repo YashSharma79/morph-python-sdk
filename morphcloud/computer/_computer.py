@@ -85,6 +85,7 @@ class Browser:
 
     def _sync_connect(self, cdp_url: str):
         from playwright.sync_api import sync_playwright
+
         if self._connected:
             return
         with sync_playwright() as p:
@@ -268,6 +269,7 @@ class Browser:
         so we can close it properly later in _sync_close.
         """
         from playwright.sync_api import sync_playwright
+
         if self._connected:
             return
         self._playwright = sync_playwright().start()
