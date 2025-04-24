@@ -1,3 +1,5 @@
+# morphcloud/computer/_computer.py
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +16,6 @@ from typing import Any, Dict, List, Optional, Union
 
 import requests
 import websocket
-from playwright.sync_api import sync_playwright
 
 from morphcloud.api import (ApiError, Instance, InstanceAPI, MorphCloudClient,
                             Snapshot)
@@ -83,6 +84,7 @@ class Browser:
     # ----------------------------------------------------------------
 
     def _sync_connect(self, cdp_url: str):
+        from playwright.sync_api import sync_playwright
         if self._connected:
             return
         with sync_playwright() as p:
@@ -265,6 +267,7 @@ class Browser:
         Variation that doesn't use 'with sync_playwright()' block,
         so we can close it properly later in _sync_close.
         """
+        from playwright.sync_api import sync_playwright
         if self._connected:
             return
         self._playwright = sync_playwright().start()

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Morph Cloud is a powerful platform for creating, managing, and interacting with remote AI development environments called runtimes. It provides a comprehensive Python SDK and CLI to:
+[Morph Cloud](https://cloud.morph.so) is a powerful platform for creating, managing, and interacting with remote AI development environments called runtimes. It provides a comprehensive Python SDK and CLI to:
 
 - Create and manage VM snapshots
 - Start, stop, pause, and resume VM instances
@@ -12,12 +12,9 @@ Morph Cloud is a powerful platform for creating, managing, and interacting with 
 - Create Docker containers within instances
 - Cache and reuse computational results with snapshot chains
 
-## Setup Guide
+### Documentation
 
-### Prerequisites
-
-- Python 3.11 or higher
-- An account on MorphCloud
+For comprehensive documentation, visit the [Morph Cloud Documentation](https://cloud.morph.so/docs/documentation/overview)
 
 ### Getting Your API Key
 
@@ -25,22 +22,189 @@ Morph Cloud is a powerful platform for creating, managing, and interacting with 
 2. Log in with your credentials
 3. Create a new API key
 
-### Documentation
+## Setup Guide
 
-For comprehensive documentation, visit the [Morph Cloud Documentation](https://cloud.morph.so/docs/documentation/overview)
+### Prerequisites
+
+- Python 3.10 or higher
+- An account on [Morph Cloud](https://cloud.morph.so)
+
+### Environment Setup with `uv`
+
+[`uv`](https://github.com/astral-sh/uv) is a fast, modern Python package installer and resolver that works great with Morph Cloud.
+
+#### Installing `uv`
+
+```bash
+# On macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+#### Setting Up a Project Environment
+
+```bash
+# Create a new project directory
+mkdir my-morph-project
+cd my-morph-project
+
+# Create a virtual environment with uv
+uv venv
+
+# Activate the environment
+# On macOS/Linux:
+source .venv/bin/activate
+# On Windows (cmd):
+.venv\Scripts\activate
+# On Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+
+# Now you're ready to install packages like `morphcloud`
+```
 
 ### Installation
 
 ```bash
-# requires python3.11 or newer 
-# create a new virtual environment
-python -m venv .venv     
+# Using uv (recommended)
+uv pip install morphcloud --upgrade
 
-# activate the new virtual environment
-source .venv/bin/activate 
+# Or using traditional pip
+pip install morphcloud --upgrade
+```
 
-# install morphcloud
-pip install morphcloud    
+## Command Line Interface
+
+The SDK includes a comprehensive command-line interface.
+
+### Global Options
+
+```bash
+# Display version
+morphcloud --version
+
+# Get help
+morphcloud --help
+```
+
+### Images
+
+```bash
+# List available images
+morphcloud image list [--json]
+```
+
+### Snapshots
+
+```bash
+# List all snapshots
+morphcloud snapshot list [--json] [--metadata KEY=VALUE]
+
+# Create a new snapshot
+morphcloud snapshot create --image-id <id> --vcpus <n> --memory <mb> --disk-size <mb> [--digest <hash>] [--metadata KEY=VALUE]
+
+# Get detailed snapshot information
+morphcloud snapshot get <snapshot-id>
+
+# Delete a snapshot
+morphcloud snapshot delete <snapshot-id>
+
+# Set metadata on a snapshot
+morphcloud snapshot set-metadata <snapshot-id> KEY1=VALUE1 [KEY2=VALUE2...]
+```
+
+### Instances
+
+```bash
+# List all instances
+morphcloud instance list [--json] [--metadata KEY=VALUE]
+
+# Start a new instance from snapshot
+morphcloud instance start <snapshot-id> [--json] [--metadata KEY=VALUE] [--ttl-seconds <seconds>] [--ttl-action stop|pause]
+
+# Pause an instance
+morphcloud instance pause <instance-id>
+
+# Resume a paused instance
+morphcloud instance resume <instance-id>
+
+# Stop an instance
+morphcloud instance stop <instance-id>
+
+# Get instance details
+morphcloud instance get <instance-id>
+
+# Create snapshot from instance
+morphcloud instance snapshot <instance-id> [--digest <hash>] [--json]
+
+# Create multiple instances from an instance (branching)
+morphcloud instance branch <instance-id> [--count <n>] [--json]
+
+# Set metadata on an instance
+morphcloud instance set-metadata <instance-id> KEY1=VALUE1 [KEY2=VALUE2...]
+```
+
+### Instance Management
+
+```bash
+# Execute command on instance
+morphcloud instance exec <instance-id> <command>
+
+# SSH into instance
+morphcloud instance ssh <instance-id> [--rm] [--snapshot] [command]
+
+# Port forwarding
+morphcloud instance port-forward <instance-id> <remote-port> [local-port]
+
+# Expose HTTP service
+morphcloud instance expose-http <instance-id> <name> <port> [--auth-mode none|api_key]
+
+# Hide HTTP service
+morphcloud instance hide-http <instance-id> <name>
+```
+
+### File Transfer
+
+```bash
+# Copy files to/from an instance
+morphcloud instance copy <source> <destination> [--recursive]
+
+# Examples:
+# Local to remote
+morphcloud instance copy ./local_file.txt inst_123:/remote/path/
+# Remote to local
+morphcloud instance copy inst_123:/remote/file.log ./local_dir/
+# Copy directory recursively
+morphcloud instance copy -r ./local_dir inst_123:/remote/dir
+```
+
+### Interactive Tools
+
+```bash
+# Start an interactive chat session with an instance
+# Note: Requires ANTHROPIC_API_KEY environment variable
+morphcloud instance chat <instance-id> [instructions]
+
+# Start a computer MCP session with an instance
+# Note: Requires "morphcloud[computer]" installation
+morphcloud instance computer-mcp <instance-id>
+```
+
+### Development Installation
+
+For developers who want to contribute to Morph Cloud:
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/morphcloud.git
+cd morphcloud
+
+# Install in development mode with dev dependencies
+uv pip install -e ".[dev]"
+
+# To also include Computer SDK for development
+uv pip install -e ".[dev,computer]"
 ```
 
 ### Configuration
@@ -48,7 +212,14 @@ pip install morphcloud
 Set your API key as an environment variable:
 
 ```bash
+# On macOS/Linux
 export MORPH_API_KEY="your-api-key"
+
+# On Windows (PowerShell)
+$env:MORPH_API_KEY="your-api-key"
+
+# On Windows (cmd)
+set MORPH_API_KEY=your-api-key
 ```
 
 ## Python API
@@ -207,6 +378,37 @@ with client.instances.start(snapshot_id=postgres_snapshot.id) as instance:
         ssh.run("psql -U postgres")
 ```
 
+### Experimental: Computer SDK
+
+The Computer SDK provides advanced browser automation and interactive capabilities for instances. Contact the [Morph team](mailto:jesse@morph.so) for preview access to the Morph Cloud Computer snapshot. This requires installing the `computer` extra:
+
+```python
+# First ensure you've installed: uv pip install "morphcloud[computer]"
+
+from morphcloud.api import MorphCloudClient
+from morphcloud.computer import Computer
+
+# Initialize the client
+client = MorphCloudClient()
+
+# Use an existing instance
+instance = client.instances.get("your_instance_id")
+
+# Convert to a Computer instance
+computer = Computer(instance)
+
+# Use the browser automation
+browser = computer.browser
+browser.connect()
+browser.goto("https://example.com")
+screenshot = browser.screenshot()
+browser.click(100, 200)
+browser.type("Hello World")
+
+# Clean up when done
+browser.close()
+```
+
 ### Asynchronous API
 
 Morph Cloud also provides asynchronous versions of all methods:
@@ -239,122 +441,6 @@ async def main():
     await instance.astop()
 
 asyncio.run(main())
-```
-
-## Command Line Interface
-
-The SDK includes a comprehensive command-line interface.
-
-### Global Options
-
-```bash
-# Display version
-morphcloud --version
-
-# Get help
-morphcloud --help
-```
-
-### Images
-
-```bash
-# List available images
-morphcloud image list [--json]
-```
-
-### Snapshots
-
-```bash
-# List all snapshots
-morphcloud snapshot list [--json] [--metadata KEY=VALUE]
-
-# Create a new snapshot
-morphcloud snapshot create --image-id <id> --vcpus <n> --memory <mb> --disk-size <mb> [--digest <hash>] [--metadata KEY=VALUE]
-
-# Get detailed snapshot information
-morphcloud snapshot get <snapshot-id>
-
-# Delete a snapshot
-morphcloud snapshot delete <snapshot-id>
-
-# Set metadata on a snapshot
-morphcloud snapshot set-metadata <snapshot-id> KEY1=VALUE1 [KEY2=VALUE2...]
-```
-
-### Instances
-
-```bash
-# List all instances
-morphcloud instance list [--json] [--metadata KEY=VALUE]
-
-# Start a new instance from snapshot
-morphcloud instance start <snapshot-id> [--json] [--metadata KEY=VALUE] [--ttl-seconds <seconds>] [--ttl-action stop|pause]
-
-# Pause an instance
-morphcloud instance pause <instance-id>
-
-# Resume a paused instance
-morphcloud instance resume <instance-id>
-
-# Stop an instance
-morphcloud instance stop <instance-id>
-
-# Get instance details
-morphcloud instance get <instance-id>
-
-# Create snapshot from instance
-morphcloud instance snapshot <instance-id> [--digest <hash>] [--json]
-
-# Create multiple instances from an instance (branching)
-morphcloud instance branch <instance-id> [--count <n>] [--json]
-
-# Set metadata on an instance
-morphcloud instance set-metadata <instance-id> KEY1=VALUE1 [KEY2=VALUE2...]
-```
-
-### Instance Management
-
-```bash
-# Execute command on instance
-morphcloud instance exec <instance-id> <command>
-
-# SSH into instance
-morphcloud instance ssh <instance-id> [--rm] [--snapshot] [command]
-
-# Port forwarding
-morphcloud instance port-forward <instance-id> <remote-port> [local-port]
-
-# Expose HTTP service
-morphcloud instance expose-http <instance-id> <name> <port> [--auth-mode none|api_key]
-
-# Hide HTTP service
-morphcloud instance hide-http <instance-id> <name>
-```
-
-### File Transfer
-
-```bash
-# Copy files to/from an instance
-morphcloud instance copy <source> <destination> [--recursive]
-
-# Examples:
-# Local to remote
-morphcloud instance copy ./local_file.txt inst_123:/remote/path/
-# Remote to local
-morphcloud instance copy inst_123:/remote/file.log ./local_dir/
-# Copy directory recursively
-morphcloud instance copy -r ./local_dir inst_123:/remote/dir
-```
-
-### Interactive Tools
-
-```bash
-# Start an interactive chat session with an instance
-# Note: Requires ANTHROPIC_API_KEY environment variable
-morphcloud instance chat <instance-id> [instructions]
-
-# Start a computer MCP session with an instance
-morphcloud instance computer-mcp <instance-id>
 ```
 
 ## Advanced Features
