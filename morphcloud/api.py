@@ -1044,25 +1044,25 @@ class Instance(BaseModel):
         response.raise_for_status()
         await self._refresh_async()
 
-    def snapshot(self, digest: typing.Optional[str] = None) -> Snapshot:
+    def snapshot(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Snapshot:
         """Save the instance as a snapshot."""
         params = {}
         if digest is not None:
             params["digest"] = digest
         response = self._api._client._http_client.post(
-            f"/instance/{self.id}/snapshot", params=params
+            f"/instance/{self.id}/snapshot", params=params, json=dict(metadata=metadata)
         )
         return Snapshot.model_validate(response.json())._set_api(
-            self._api._client.snapshots
+            self._api._client.snapshots,
         )
 
-    async def asnapshot(self, digest: typing.Optional[str] = None) -> Snapshot:
+    async def asnapshot(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Snapshot:
         """Save the instance as a snapshot."""
         params = {}
         if digest is not None:
             params = {"digest": digest}
         response = await self._api._client._async_http_client.post(
-            f"/instance/{self.id}/snapshot", params=params
+            f"/instance/{self.id}/snapshot", params=params, json=dict(metadata=metadata)
         )
         return Snapshot.model_validate(response.json())._set_api(
             self._api._client.snapshots
