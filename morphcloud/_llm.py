@@ -283,27 +283,32 @@ def process_assistant_message(response_stream):
 
     return response_msg, tool_use_active
 
+def agent_loop(
+    instance,
+    initial_prompt: Optional[str] = None,
+    conversation_file: Optional[str] = None,
+):
+    """
+    Interactive REPL that persists conversation state in YAML and, when
+    re-started, replays that state so the user appears to resume the same
+    terminal session.
+    """
+    import yaml  # pip install pyyaml
 
-def agent_loop(instance, initial_prompt: Optional[str] = None):
     SYSTEM_MESSAGE = """# Background
 You are a Morph Virtual Machine, a cloud environment for securely executing AI generated code, you are a semi-autonomous agent that can run commands inside of your MorphVM environment.
 
 # Style
-Answer user questions and run commands on the MorphVM instance.
-Answer user questions in the first person as the MorphVM instance.
-Keep responses concise and to the point.
-The user can see the output of the command and the exit code so you don't need to repeat this information in your response.
+Answer user questions and run commands on the MorphVM instance. Answer user questions in the first person as the MorphVM instance. Keep responses concise and to the point. The user can see the output of the command and the exit code so you don't need to repeat this information in your response.
 DO NOT REPEAT THE COMMAND OUTPUT IN YOUR RESPONSE.
 
 # Environment
-You are running inside of a minimal Debian-based operating system.
-You have access to an MMDS V2 protocol metadata server accessible at 169.254.169.254 with information about the MorphVM instance. You'll need to grab the X-metadata-token from /latest/api/token to authenticate with the server.
+You are running inside of a minimal Debian-based operating system. You have access to an MMDS V2 protocol metadata server accessible at 169.254.169.254 with information about the MorphVM instance. You'll need to grab the X-metadata-token from /latest/api/token to authenticate with the server.
 
 # Interface
-You have one tool available: "run_command" which takes a command to run and returns the result.
-Inspect the stdout, stderr, and exit code of the command's result and provide a response.
-Note that each command you execute will be run in a separate SSH session so any state changes (e.g. environment variables, directory changes) will not persist between commands. Handle this transparently for the user.
+You have one tool available: "run_command" which takes a command to run and returns the result. Inspect the stdout, stderr, and exit code of the command's result and provide a response. Note that each command you execute will be run in a separate SSH session so any state changes (e.g. environment variables, directory changes) will not persist between commands. Handle this transparently for the user.
 """
+
     tools = [
         {
             "name": "run_command",
@@ -316,45 +321,203 @@ Note that each command you execute will be run in a separate SSH session so any 
         }
     ]
 
-    messages = []
+    # ------------------------------------------------------------- #
+    # Conversation persistence
+    # ------------------------------------------------------------- #
+    messages: List[Dict[str, Any]] = []
 
+    if conversation_file and os.path.exists(conversation_file):
+        try:
+            with open(conversation_file, "r") as f:
+                loaded = yaml.safe_load(f) or []
+                if isinstance(loaded, list):
+                    messages = loaded
+        except Exception:
+            # Broken file → start fresh, but don't disturb stdout.
+            messages = []
+
+    def save_conversation() -> None:
+        if conversation_file:
+            try:
+                with open(conversation_file, "w") as f:
+                    yaml.safe_dump(messages, f, sort_keys=False, allow_unicode=True)
+            except Exception:
+                pass  # ignore write errors silently
+
+    # ------------------------------------------------------------- #
+    # Helpers for replaying a prior session (preserve layout)       #
+    # ------------------------------------------------------------- #
+    def _gather_text_blocks(content) -> str:
+        """
+        Concatenate all text contained in `content` (string or list of blocks).
+        Non-text blocks are ignored.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                blk.get("text", "")
+                for blk in content
+                if isinstance(blk, dict) and blk.get("type") == "text"
+            )
+        return str(content)
+
+    def _render_tool_result(tr: dict) -> None:
+        """
+        Render the same summary that ssh_connect_and_run prints after a command
+        finishes, using exit_code / stdout / stderr from the stored tool_result.
+        """
+        exit_code = tr.get("exit_code", -1)
+        stdout = tr.get("stdout", "")
+        stderr = tr.get("stderr", "")
+
+        # Same header / colour choices the live run uses
+        print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}")
+        print(f"\n{COLORS['OUTPUT_HEADER']}Output:{COLORS['RESET']}")
+        if stdout:
+            print(f"{COLORS['TEXT']}{stdout.rstrip()}{COLORS['RESET']}")
+        if stderr:
+            print(f"{COLORS['HIGHLIGHT']}[stderr] {stderr.rstrip()}{COLORS['RESET']}")
+
+        print(f"\n{COLORS['OUTPUT_HEADER']}Status:{COLORS['RESET']}")
+        status_colour = COLORS["SUCCESS"] if exit_code == 0 else COLORS["ERROR"]
+        status_msg = "✓ Command succeeded" if exit_code == 0 else "✗ Command failed"
+        print(f"{status_colour}{status_msg} (exit code: {exit_code}){COLORS['RESET']}")
+
+        if stderr:
+            print(
+                f"{COLORS['ERROR']}Command produced error output - see [stderr] messages above{COLORS['RESET']}"
+            )
+        print(f"\n{COLORS['SECONDARY']}{'─' * 50}{COLORS['RESET']}\n")
+
+    def replay_previous_dialogue() -> None:
+        """
+        Re-emit the stored conversation so the terminal looks exactly as it
+        did when the last session ended – correct spacing, debug lines and
+        command-output panel.  Nothing is re-executed.
+        """
+        # Build lookup  tool_use_id  ->  parsed tool_result
+        tool_results: Dict[str, dict] = {}
+        for m in messages:
+            if m["role"] == "user" and isinstance(m["content"], list):
+                for blk in m["content"]:
+                    if isinstance(blk, dict) and blk.get("type") == "tool_result":
+                        try:
+                            tool_results[blk["tool_use_id"]] = json.loads(blk["content"])
+                        except Exception:
+                            pass
+
+        for msg in messages:
+            # -------------- USER ----------------------------------------
+            if msg["role"] == "user":
+                # messages that contain only a tool_result are silent
+                if isinstance(msg["content"], list) and all(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in msg["content"]
+                ):
+                    continue
+
+                print(
+                    f"{USER_PROMPT}{COLORS['TEXT']}{_gather_text_blocks(msg['content'])}{COLORS['RESET']}"
+                )
+                print()  # <Enter> pressed by the user
+
+            # -------------- ASSISTANT ----------------------------------
+            elif msg["role"] == "assistant":
+                last_block_was_tool_use = False
+
+                for blk in msg["content"]:
+                    # -- text ------------------------------------------------
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        txt = blk.get("text", "")
+                        sys.stdout.write(MORPHVM_PROMPT)
+                        sys.stdout.write(COLORS["TEXT"] + txt + COLORS["RESET"] + "\n")
+                        sys.stdout.flush()
+                        last_block_was_tool_use = False
+
+                    # -- tool_use -------------------------------------------
+                    elif isinstance(blk, dict) and blk.get("type") == "tool_use":
+                        last_block_was_tool_use = True
+                        tool_name = blk.get("name")
+                        tool_input = blk.get("input", {})
+
+                        print(
+                            f"\n{COLORS['SECONDARY']}[DEBUG]{COLORS['RESET']} Tool call received: "
+                            f"name='{COLORS['PRIMARY']}{tool_name}{COLORS['RESET']}' "
+                            f"input={COLORS['TEXT']}{tool_input}{COLORS['RESET']}"
+                        )
+
+                        cmd = tool_input.get("command", "")
+                        print(
+                            f"{COLORS['SECONDARY']}[DEBUG]{COLORS['RESET']} Running SSH command: "
+                            f"{COLORS['TEXT']}{cmd}{COLORS['RESET']}"
+                        )
+
+                        tr = tool_results.get(blk["id"])
+                        if tr is not None:
+                            _render_tool_result(tr)
+
+                # live session prints ONE blank line after a text-only
+                # assistant message, and ZERO after a message that ends in
+                # a tool_use block (because the tool-result panel already
+                # leaves the cursor on a blank line).  Reproduce that:
+                if not last_block_was_tool_use:
+                    print()
+
+        # cursor now sits on a fresh line ready for the next prompt
+
+    # ------------------------------------------------------------- #
+    # Banner / greeting (unchanged)
+    # ------------------------------------------------------------- #
     scramble_print(
         SCRAMBLE_TEXT,
         speed=2.0,
         seed=1,
-        step=1,  # Reduced step size from 2 to 1
-        scramble=3,  # Increased for more visible effect
-        chance=1.0,  # Set to 1.0 for deterministic resolution
-        overflow=True,  # Allow full-width ASCII art
+        step=1,
+        scramble=3,
+        chance=1.0,
+        overflow=True,
     )
     print(f"{COLORS['TEXT']}Welcome to the Morph VM chat cli.{COLORS['RESET']}")
     print(f"{COLORS['SECONDARY']}Type 'exit' or 'quit' to stop.{COLORS['RESET']}\n")
 
+    # Immediately replay any previously-saved conversation so the screen
+    # looks identical to where the user left off.
+    replay_previous_dialogue()
+
+    # ------------------------------------------------------------- #
+    # Model client
+    # ------------------------------------------------------------- #
     try:
         client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
-    except KeyError as e:
-        print(
-            f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}"
-        )
-        raise e
+    except KeyError:
+        print(f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}")
+        raise
 
     if readline:
 
         class SimpleCompleter:
             def complete(self, text, state):
                 if state == 0:
-                    if text:
-                        return text
-                    return None
-                return None
+                    return text if text else None
 
         readline.set_completer(SimpleCompleter().complete)
 
+    # ------------------------------------------------------------- #
+    # Optional initial prompt (only if no history loaded)
+    # ------------------------------------------------------------- #
+    if initial_prompt and not messages:
+        messages.append({"role": "user", "content": initial_prompt})
+        save_conversation()
+
+    # ------------------------------------------------------------- #
+    # Main REPL loop
+    # ------------------------------------------------------------- #
     while True:
+        # -- input --------------------------------------------------- #
         try:
             while True:
-                user_input = input(USER_PROMPT)
-                user_input = user_input.strip()
+                user_input = input(USER_PROMPT).strip()
                 if user_input:
                     break
         except EOFError:
@@ -366,33 +529,27 @@ Note that each command you execute will be run in a separate SSH session so any 
             break
 
         messages.append({"role": "user", "content": user_input})
+        save_conversation()
 
-        SYSTEM_MESSAGE = SYSTEM_MESSAGE + (
-            f"\n# Additional instructions\n\n{initial_prompt}\n"
-            if initial_prompt
-            else ""
-        )
-
+        # -- model call --------------------------------------------- #
         anthropic_error_wait_time = 3
         patience = 3
         num_tries = 0
         while num_tries < patience:
             try:
                 response_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
-                response_msg, tool_use_active = process_assistant_message(
-                    response_stream
-                )
+                response_msg, tool_use_active = process_assistant_message(response_stream)
                 break
             except anthropic.APIStatusError as e:
                 print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
                 time.sleep(anthropic_error_wait_time)
                 num_tries += 1
                 continue
-            except Exception as e:
-                break
 
         messages.append({"role": "assistant", "content": response_msg["content"]})
+        save_conversation()
 
+        # -- tool handling ------------------------------------------ #
         while tool_use_active:
             tool_use_blocks = [
                 c for c in response_msg["content"] if c["type"] == "tool_use"
@@ -408,8 +565,11 @@ Note that each command you execute will be run in a separate SSH session so any 
                 tool_input = tool_block.get("input", {})
 
                 print(
-                    f"\n{COLORS['SECONDARY']}[DEBUG]{COLORS['RESET']} Tool call received: name='{COLORS['PRIMARY']}{tool_name}{COLORS['RESET']}' input={COLORS['TEXT']}{tool_input}{COLORS['RESET']}"
+                    f"\n{COLORS['SECONDARY']}[DEBUG]{COLORS['RESET']} Tool call received: "
+                    f"name='{COLORS['PRIMARY']}{tool_name}{COLORS['RESET']}' "
+                    f"input={COLORS['TEXT']}{tool_input}{COLORS['RESET']}"
                 )
+
                 tool_call = ToolCall(name=tool_name, input=tool_input)
                 tool_result = run_tool(tool_call, instance)
 
@@ -425,27 +585,20 @@ Note that each command you execute will be run in a separate SSH session so any 
                         ],
                     }
                 )
+                save_conversation()
 
-                while True:
-                    try:
-                        second_response_stream = call_model(
-                            client, SYSTEM_MESSAGE, messages, tools
-                        )
-                        response_msg, tool_use_active = process_assistant_message(
-                            second_response_stream
-                        )
-                        break
-                    except anthropic.APIStatusError as e:
-                        print(
-                            f"Received {e=}, retrying in {anthropic_error_wait_time}s"
-                        )
-                        time.sleep(anthropic_error_wait_time)
-                        continue
-                    except Exception as e:
-                        break
+            while True:
+                try:
+                    second_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
+                    response_msg, tool_use_active = process_assistant_message(second_stream)
+                    break
+                except anthropic.APIStatusError as e:
+                    print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
+                    time.sleep(anthropic_error_wait_time)
 
-                messages.append(
-                    {"role": "assistant", "content": response_msg["content"]}
-                )
+            messages.append({"role": "assistant", "content": response_msg["content"]})
+            save_conversation()
 
-            print()
+        print()  # maintain original blank-line behaviour
+
+    save_conversation()  # final flush on exit

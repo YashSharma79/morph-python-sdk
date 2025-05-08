@@ -415,8 +415,14 @@ def get_snapshot(snapshot_id):
 
 @snapshot.command("set-metadata")
 @click.argument("snapshot_id")
-@click.argument("metadata_args", nargs=-1, required=True)
-def set_snapshot_metadata(snapshot_id, metadata_args):
+@click.option(
+    "--metadata",
+    "-m",
+    help="Metadata to attach (format: key=value)",
+    multiple=True,
+)
+@click.argument("metadata_args", nargs=-1, required=False)
+def set_snapshot_metadata(snapshot_id, metadata, metadata_args):
     """
     Set or update metadata on a snapshot.
 
@@ -429,6 +435,11 @@ def set_snapshot_metadata(snapshot_id, metadata_args):
 
         metadata_dict = {}
         for meta in metadata_args:
+            if "=" not in meta:
+                raise click.UsageError("Metadata must be in key=value format.")
+            k, v = meta.split("=", 1)
+            metadata_dict[k] = v
+        for meta in metadata:
             if "=" not in meta:
                 raise click.UsageError("Metadata must be in key=value format.")
             k, v = meta.split("=", 1)
@@ -671,11 +682,28 @@ def get_instance(instance_id):
 @click.argument("instance_id")
 @click.option("--digest", help="Optional unique digest.")
 @click.option(
+    "--metadata",
+    "-m",
+    help="Metadata to attach (format: key=value)",
+    multiple=True,
+)
+@click.option(
     "--json", "json_mode", is_flag=True, default=False, help="Output result as JSON."
 )
-def snapshot_instance(instance_id, digest, json_mode):
+def snapshot_instance(instance_id, digest, metadata, json_mode):
     """Create a new snapshot from an instance."""
     client = get_client()
+
+    if metadata:
+        metadata_dict = {}
+        for meta in metadata:
+            if "=" not in meta:
+                raise click.UsageError("Metadata must be key=value.")
+            k, v = meta.split("=", 1)
+            metadata_dict[k] = v
+    else:
+        metadata_dict = None
+
     try:
         instance_obj = client.instances.get(instance_id)
         if instance_obj.status not in [
@@ -693,7 +721,7 @@ def snapshot_instance(instance_id, digest, json_mode):
             success_text="Instance snapshot complete!",
             success_emoji="📸",
         ):
-            new_snapshot = instance_obj.snapshot(digest=digest)
+            new_snapshot = instance_obj.snapshot(digest=digest, metadata=metadata_dict)
 
         if json_mode:
             click.echo(format_json(new_snapshot))
@@ -872,12 +900,12 @@ def exec_command(instance_id, command_args):
     client = get_client()
     try:
         instance_obj = client.instances.get(instance_id)
-        if instance_obj.status != api.InstanceStatus.READY:
-            click.echo(
-                f"Error: Instance must be READY to execute commands. Current: {instance_obj.status.value}",
-                err=True,
-            )
-            sys.exit(1)
+        # if instance_obj.status != api.InstanceStatus.READY:
+        #     click.echo(
+        #         f"Error: Instance must be READY to execute commands. Current: {instance_obj.status.value}",
+        #         err=True,
+        #     )
+        #     sys.exit(1)
 
         cmd_str = " ".join(command_args)
         with Spinner(
@@ -908,8 +936,14 @@ def exec_command(instance_id, command_args):
 
 @instance.command("set-metadata")
 @click.argument("instance_id")
-@click.argument("metadata_args", nargs=-1, required=True)
-def set_instance_metadata(instance_id, metadata_args):
+@click.option(
+    "--metadata",
+    "-m",
+    help="Metadata to attach (format: key=value)",
+    multiple=True,
+)
+@click.argument("metadata_args", nargs=-1, required=False)
+def set_instance_metadata(instance_id, metadata, metadata_args):
     """
     Set or update metadata on an instance.
     """
@@ -918,6 +952,12 @@ def set_instance_metadata(instance_id, metadata_args):
         instance_obj = client.instances.get(instance_id)
         metadata_dict = {}
         for meta in metadata_args:
+            if "=" not in meta:
+                raise click.UsageError("Metadata must be in key=value format.")
+            k, v = meta.split("=", 1)
+            metadata_dict[k] = v
+
+        for meta in metadata:
             if "=" not in meta:
                 raise click.UsageError("Metadata must be in key=value format.")
             k, v = meta.split("=", 1)
@@ -1210,8 +1250,14 @@ def copy_files(source, destination, recursive):
 
 @instance.command("chat")
 @click.argument("instance_id")
+@click.option(
+    "--conversation-file",
+    "-f",
+    type=click.Path(dir_okay=False),
+    help="Path to a conversation file.",
+)
 @click.argument("instructions", nargs=-1, required=False, type=click.UNPROCESSED)
-def chat(instance_id, instructions):
+def chat(instance_id, conversation_file, instructions):
     """Start an interactive LLM agent chat session with an instance."""
     client = get_client()
     try:
@@ -1228,7 +1274,7 @@ def chat(instance_id, instructions):
         click.echo("Starting chat agent...")
 
         initial_prompt = " ".join(instructions) if instructions else None
-        agent_loop(instance_obj, initial_prompt=initial_prompt)
+        agent_loop(instance_obj, initial_prompt=initial_prompt, conversation_file=conversation_file)
     except ImportError:
         click.echo(
             "Error: Chat requires additional dependencies (e.g., 'anthropic').",
