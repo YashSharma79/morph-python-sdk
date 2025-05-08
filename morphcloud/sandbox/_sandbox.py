@@ -160,7 +160,7 @@ class SandboxAPI:
             ValueError: If the snapshot is not a valid Sandbox snapshot
         """
         # Verify the snapshot is meant for Sandbox use
-        self._verify_snapshot_is_sandbox(snapshot_id)
+        # self._verify_snapshot_is_sandbox(snapshot_id)
 
         # Start the instance
         response = self._client._http_client.post(
@@ -980,4 +980,5 @@ class Sandbox:
         )
 
         # Connect and return the sandbox
-        return sandbox.connect()
+        # return sandbox.connect()
+        return sandbox

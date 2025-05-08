@@ -1274,7 +1274,11 @@ def chat(instance_id, conversation_file, instructions):
         click.echo("Starting chat agent...")
 
         initial_prompt = " ".join(instructions) if instructions else None
-        agent_loop(instance_obj, initial_prompt=initial_prompt, conversation_file=conversation_file)
+        agent_loop(
+            instance_obj,
+            initial_prompt=initial_prompt,
+            conversation_file=conversation_file,
+        )
     except ImportError:
         click.echo(
             "Error: Chat requires additional dependencies (e.g., 'anthropic').",

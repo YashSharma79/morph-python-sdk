@@ -1044,7 +1044,11 @@ class Instance(BaseModel):
         response.raise_for_status()
         await self._refresh_async()
 
-    def snapshot(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Snapshot:
+    def snapshot(
+        self,
+        digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> Snapshot:
         """Save the instance as a snapshot."""
         params = {}
         if digest is not None:
@@ -1056,7 +1060,11 @@ class Instance(BaseModel):
             self._api._client.snapshots,
         )
 
-    async def asnapshot(self, digest: typing.Optional[str] = None, metadata: typing.Optional[typing.Dict[str, str]] = None) -> Snapshot:
+    async def asnapshot(
+        self,
+        digest: typing.Optional[str] = None,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> Snapshot:
         """Save the instance as a snapshot."""
         params = {}
         if digest is not None:

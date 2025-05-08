@@ -283,6 +283,7 @@ def process_assistant_message(response_stream):
 
     return response_msg, tool_use_active
 
+
 def agent_loop(
     instance,
     initial_prompt: Optional[str] = None,
@@ -403,7 +404,9 @@ You have one tool available: "run_command" which takes a command to run and retu
                 for blk in m["content"]:
                     if isinstance(blk, dict) and blk.get("type") == "tool_result":
                         try:
-                            tool_results[blk["tool_use_id"]] = json.loads(blk["content"])
+                            tool_results[blk["tool_use_id"]] = json.loads(
+                                blk["content"]
+                            )
                         except Exception:
                             pass
 
@@ -491,7 +494,9 @@ You have one tool available: "run_command" which takes a command to run and retu
     try:
         client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
     except KeyError:
-        print(f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}")
+        print(
+            f"{COLORS['HIGHLIGHT']}Error: ANTHROPIC_API_KEY not found.{COLORS['RESET']}"
+        )
         raise
 
     if readline:
@@ -538,7 +543,9 @@ You have one tool available: "run_command" which takes a command to run and retu
         while num_tries < patience:
             try:
                 response_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
-                response_msg, tool_use_active = process_assistant_message(response_stream)
+                response_msg, tool_use_active = process_assistant_message(
+                    response_stream
+                )
                 break
             except anthropic.APIStatusError as e:
                 print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
@@ -590,7 +597,9 @@ You have one tool available: "run_command" which takes a command to run and retu
             while True:
                 try:
                     second_stream = call_model(client, SYSTEM_MESSAGE, messages, tools)
-                    response_msg, tool_use_active = process_assistant_message(second_stream)
+                    response_msg, tool_use_active = process_assistant_message(
+                        second_stream
+                    )
                     break
                 except anthropic.APIStatusError as e:
                     print(f"Received {e=}, retrying in {anthropic_error_wait_time}s")
