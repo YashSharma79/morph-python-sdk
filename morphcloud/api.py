@@ -14,6 +14,7 @@ from functools import lru_cache
 
 import httpx
 from pydantic import BaseModel, Field, PrivateAttr
+
 # Import Rich for fancy printing
 from rich.console import Console
 from rich.live import Live
@@ -288,7 +289,9 @@ class SnapshotAPI:
         if metadata is not None:
             body["metadata"] = metadata
         response = self._client._http_client.post("/snapshot", json=body)
-        return Snapshot.model_validate(response.json())._set_api(self)
+        snap: Snapshot = Snapshot.model_validate(response.json())._set_api(self)
+        snap.wait_until_ready()
+        return snap
 
     async def acreate(
         self,
@@ -322,7 +325,9 @@ class SnapshotAPI:
         if metadata is not None:
             body["metadata"] = metadata
         response = await self._client._async_http_client.post("/snapshot", json=body)
-        return Snapshot.model_validate(response.json())._set_api(self)
+        snap: Snapshot = Snapshot.model_validate(response.json())._set_api(self)
+        await snap.await_until_ready()
+        return snap
 
     def get(self, snapshot_id: str) -> Snapshot:
         response = self._client._http_client.get(f"/snapshot/{snapshot_id}")
@@ -392,6 +397,28 @@ class Snapshot(BaseModel):
         updated = type(self).model_validate(refreshed.model_dump())
         for key, value in updated.__dict__.items():
             setattr(self, key, value)
+
+    def wait_until_ready(self, timeout: typing.Optional[float] = None) -> None:
+        """Wait until the snapshot is ready."""
+        start_time = time.time()
+        while self.status != SnapshotStatus.READY:
+            if timeout is not None and time.time() - start_time > timeout:
+                raise TimeoutError("Snapshot did not become ready before timeout")
+            time.sleep(1)
+            self._refresh()
+            if self.status == SnapshotStatus.FAILED:
+                raise RuntimeError("Snapshot creation failed / encountered an error")
+
+    async def await_until_ready(self, timeout: typing.Optional[float] = None) -> None:
+        """Wait until the snapshot is ready."""
+        start_time = time.time()
+        while self.status != SnapshotStatus.READY:
+            if timeout is not None and time.time() - start_time > timeout:
+                raise TimeoutError("Snapshot did not become ready before timeout")
+            await asyncio.sleep(1)
+            await self._refresh_async()
+            if self.status == SnapshotStatus.FAILED:
+                raise RuntimeError("Snapshot creation failed / encountered an error")
 
     @staticmethod
     def compute_chain_hash(parent_chain_hash: str, effect_identifier: str) -> str:
@@ -882,6 +909,8 @@ class InstanceAPI(BaseAPI):
             ttl_seconds: Optional time-to-live in seconds for the instance.
             ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
         """
+        if isinstance(snapshot_id, Snapshot):
+            assert isinstance(snapshot_id, str), "start(...) excepts a snapshot_id: str"
         response = self._client._http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
@@ -908,7 +937,8 @@ class InstanceAPI(BaseAPI):
             ttl_seconds: Optional time-to-live in seconds for the instance.
             ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
         """
-
+        if isinstance(snapshot_id, Snapshot):
+            assert isinstance(snapshot_id, str), "start(...) excepts a snapshot_id: str"
         response = await self._client._async_http_client.post(
             "/instance",
             params={"snapshot_id": snapshot_id},
@@ -2337,7 +2367,15 @@ class Instance(BaseModel):
                 console.print("[green]Docker service is active.[/green]")
 
             # Build docker run command
-            docker_cmd = ["docker", "run", "-d", "--name", container_name]
+            docker_cmd = [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--network",
+                "host",
+            ]
 
             # Add restart policy
             docker_cmd.extend(["--restart", restart_policy])
