@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import os
@@ -19,8 +20,6 @@ from rich.live import Live
 from rich.panel import Panel
 
 from morphcloud._utils import StrEnum
-
-import fnmatch
 
 # Global console instance
 console = Console()
@@ -1025,7 +1024,9 @@ class InstanceAPI(BaseAPI):
         # Validate action parameter
         valid_actions = ["stop", "pause"]
         if action not in valid_actions:
-            raise ValueError(f"Invalid action '{action}'. Must be one of: {valid_actions}")
+            raise ValueError(
+                f"Invalid action '{action}'. Must be one of: {valid_actions}"
+            )
 
         console.print(f"[bold blue]Starting MorphCloud Instance Cleanup[/bold blue]")
         console.print(f"Action: [cyan]{action}[/cyan]")
@@ -1038,10 +1039,18 @@ class InstanceAPI(BaseAPI):
 
             if not all_instances:
                 console.print("[green]No instances found. Nothing to clean up.[/green]")
-                return {"success": True, "total": 0, "processed": 0, "kept": 0, "errors": []}
+                return {
+                    "success": True,
+                    "total": 0,
+                    "processed": 0,
+                    "kept": 0,
+                    "errors": [],
+                }
 
         except Exception as e:
-            console.print(f"[bold red]Error listing instances:[/bold red] {e}", style="error")
+            console.print(
+                f"[bold red]Error listing instances:[/bold red] {e}", style="error"
+            )
             return {"success": False, "error": str(e)}
 
         # Filter instances
@@ -1059,11 +1068,15 @@ class InstanceAPI(BaseAPI):
             if action == "stop":
                 if instance.status not in [InstanceStatus.READY, InstanceStatus.PAUSED]:
                     should_process = False
-                    reasons_to_keep.append(f"status is {instance.status.value} (not ready/paused)")
+                    reasons_to_keep.append(
+                        f"status is {instance.status.value} (not ready/paused)"
+                    )
             elif action == "pause":
                 if instance.status != InstanceStatus.READY:
                     should_process = False
-                    reasons_to_keep.append(f"status is {instance.status.value} (not ready)")
+                    reasons_to_keep.append(
+                        f"status is {instance.status.value} (not ready)"
+                    )
 
             # Check exclude_paused flag
             if exclude_paused and instance.status == InstanceStatus.PAUSED:
@@ -1077,23 +1090,37 @@ class InstanceAPI(BaseAPI):
             def matches_any_pattern(value, pattern_list):
                 if not pattern_list:
                     return False
-                patterns = [p.strip() for p in pattern_list.split(',')]
+                patterns = [p.strip() for p in pattern_list.split(",")]
                 return any(fnmatch.fnmatch(value, pattern) for pattern in patterns)
 
             # Include pattern check
-            if snapshot_pattern and not matches_any_pattern(snapshot_id, snapshot_pattern):
+            if snapshot_pattern and not matches_any_pattern(
+                snapshot_id, snapshot_pattern
+            ):
                 should_process = False
-                reasons_to_keep.append(f"snapshot ID '{snapshot_id}' doesn't match patterns '{snapshot_pattern}'")
-            elif snapshot_pattern and matches_any_pattern(snapshot_id, snapshot_pattern):
-                reasons_to_process.append(f"snapshot ID matches patterns '{snapshot_pattern}'")
+                reasons_to_keep.append(
+                    f"snapshot ID '{snapshot_id}' doesn't match patterns '{snapshot_pattern}'"
+                )
+            elif snapshot_pattern and matches_any_pattern(
+                snapshot_id, snapshot_pattern
+            ):
+                reasons_to_process.append(
+                    f"snapshot ID matches patterns '{snapshot_pattern}'"
+                )
 
             # Exclude pattern check
-            if snapshot_exclude_pattern and matches_any_pattern(snapshot_id, snapshot_exclude_pattern):
+            if snapshot_exclude_pattern and matches_any_pattern(
+                snapshot_id, snapshot_exclude_pattern
+            ):
                 should_process = False
-                reasons_to_keep.append(f"snapshot ID '{snapshot_id}' matches exclude patterns '{snapshot_exclude_pattern}'")
+                reasons_to_keep.append(
+                    f"snapshot ID '{snapshot_id}' matches exclude patterns '{snapshot_exclude_pattern}'"
+                )
 
             # Check service patterns
-            exposed_service_names = {service.name for service in instance.networking.http_services}
+            exposed_service_names = {
+                service.name for service in instance.networking.http_services
+            }
 
             if service_pattern or service_exclude_pattern:
                 service_match_found = False
@@ -1103,28 +1130,40 @@ class InstanceAPI(BaseAPI):
 
                 for service_name in exposed_service_names:
                     # Include pattern check (keep instances with these services)
-                    if service_pattern and matches_any_pattern(service_name, service_pattern):
+                    if service_pattern and matches_any_pattern(
+                        service_name, service_pattern
+                    ):
                         service_match_found = True
                         matching_keep_services.append(service_name)
 
                     # Exclude pattern check (also keep instances with these services)
-                    if service_exclude_pattern and matches_any_pattern(service_name, service_exclude_pattern):
+                    if service_exclude_pattern and matches_any_pattern(
+                        service_name, service_exclude_pattern
+                    ):
                         service_exclude_found = True
                         matching_exclude_services.append(service_name)
 
                 # If service_pattern is provided and we have matches, keep this instance
                 if service_pattern and service_match_found:
                     should_process = False
-                    reasons_to_keep.append(f"services {matching_keep_services} match keep patterns '{service_pattern}'")
-                # If service_exclude_pattern is provided and we have matches, keep this instance  
+                    reasons_to_keep.append(
+                        f"services {matching_keep_services} match keep patterns '{service_pattern}'"
+                    )
+                # If service_exclude_pattern is provided and we have matches, keep this instance
                 elif service_exclude_pattern and service_exclude_found:
                     should_process = False
-                    reasons_to_keep.append(f"services {matching_exclude_services} match exclude patterns '{service_exclude_pattern}' (excluded from processing)")
+                    reasons_to_keep.append(
+                        f"services {matching_exclude_services} match exclude patterns '{service_exclude_pattern}' (excluded from processing)"
+                    )
                 # If we have service patterns but no matches, this instance can be processed
                 elif service_pattern and not service_match_found:
-                    reasons_to_process.append(f"no services match keep patterns '{service_pattern}'")
+                    reasons_to_process.append(
+                        f"no services match keep patterns '{service_pattern}'"
+                    )
                 elif service_exclude_pattern and not service_exclude_found:
-                    reasons_to_process.append(f"no services match exclude patterns '{service_exclude_pattern}'")
+                    reasons_to_process.append(
+                        f"no services match exclude patterns '{service_exclude_pattern}'"
+                    )
 
             # Final decision
             if should_process:
@@ -1143,7 +1182,9 @@ class InstanceAPI(BaseAPI):
         # Summary
         console.print(f"\n[bold]Summary:[/bold]")
         console.print(f"  - Instances to keep: [green]{len(instances_to_keep)}[/green]")
-        console.print(f"  - Instances to {action}: [yellow]{len(instances_to_process)}[/yellow]")
+        console.print(
+            f"  - Instances to {action}: [yellow]{len(instances_to_process)}[/yellow]"
+        )
 
         if not instances_to_process:
             console.print(f"\n[green]No instances marked for {action}ing.[/green]")
@@ -1152,12 +1193,14 @@ class InstanceAPI(BaseAPI):
                 "total": len(all_instances),
                 "processed": 0,
                 "kept": len(instances_to_keep),
-                "errors": []
+                "errors": [],
             }
 
         # User confirmation
         if confirm:
-            console.print(f"\n[bold yellow]Ready to {action} {len(instances_to_process)} instances.[/bold yellow]")
+            console.print(
+                f"\n[bold yellow]Ready to {action} {len(instances_to_process)} instances.[/bold yellow]"
+            )
 
             if instances_to_process:
                 # Display table of instances to be processed
@@ -1165,19 +1208,31 @@ class InstanceAPI(BaseAPI):
 
                 # Helper function to print table
                 def print_instance_table(instances, title_color="yellow"):
-                    headers = ["Instance ID", "Snapshot ID", "Status", "VCPUs", "Memory (MB)", "Services"]
+                    headers = [
+                        "Instance ID",
+                        "Snapshot ID",
+                        "Status",
+                        "VCPUs",
+                        "Memory (MB)",
+                        "Services",
+                    ]
                     rows = []
 
                     for inst in instances:
-                        services = ", ".join(f"{svc.name}:{svc.port}" for svc in inst.networking.http_services)
-                        rows.append([
-                            inst.id,
-                            inst.refs.snapshot_id,
-                            inst.status.value,
-                            str(inst.spec.vcpus),
-                            str(inst.spec.memory),
-                            services if services else "None"
-                        ])
+                        services = ", ".join(
+                            f"{svc.name}:{svc.port}"
+                            for svc in inst.networking.http_services
+                        )
+                        rows.append(
+                            [
+                                inst.id,
+                                inst.refs.snapshot_id,
+                                inst.status.value,
+                                str(inst.spec.vcpus),
+                                str(inst.spec.memory),
+                                services if services else "None",
+                            ]
+                        )
 
                     # Calculate column widths
                     widths = []
@@ -1192,7 +1247,9 @@ class InstanceAPI(BaseAPI):
                     header_line = "  "
                     for i, header in enumerate(headers):
                         header_line += f"{header:<{widths[i]}}  "
-                    console.print(f"[bold {title_color}]{header_line}[/bold {title_color}]")
+                    console.print(
+                        f"[bold {title_color}]{header_line}[/bold {title_color}]"
+                    )
 
                     # Print separator
                     separator_line = "  "
@@ -1210,11 +1267,19 @@ class InstanceAPI(BaseAPI):
                 print_instance_table(instances_to_process, "yellow")
 
             if instances_to_keep:
-                console.print(f"\n[bold green]Instances that will be kept ({len(instances_to_keep)}):[/bold green]")
+                console.print(
+                    f"\n[bold green]Instances that will be kept ({len(instances_to_keep)}):[/bold green]"
+                )
                 print_instance_table(instances_to_keep, "green")
 
-            response = input(f"\nDo you want to proceed to {action} {len(instances_to_process)} instances? (y/N): ").lower().strip()
-            if response not in ['y', 'yes']:
+            response = (
+                input(
+                    f"\nDo you want to proceed to {action} {len(instances_to_process)} instances? (y/N): "
+                )
+                .lower()
+                .strip()
+            )
+            if response not in ["y", "yes"]:
                 console.print("[cyan]Operation cancelled by user.[/cyan]")
                 return {
                     "success": True,
@@ -1222,22 +1287,28 @@ class InstanceAPI(BaseAPI):
                     "processed": 0,
                     "kept": len(all_instances),
                     "cancelled": True,
-                    "errors": []
+                    "errors": [],
                 }
 
         # Worker function for concurrent operations
-        def process_instance_worker(instance: Instance) -> typing.Tuple[str, bool, typing.Optional[str]]:
+        def process_instance_worker(
+            instance: Instance,
+        ) -> typing.Tuple[str, bool, typing.Optional[str]]:
             """Worker function to process a single instance."""
             instance_id = instance.id
             try:
-                console.print(f"[yellow]Attempting to {action} instance {instance_id}...")
+                console.print(
+                    f"[yellow]Attempting to {action} instance {instance_id}..."
+                )
 
                 if action == "stop":
                     instance.stop()
                 elif action == "pause":
                     instance.pause()
 
-                console.print(f"[green]Successfully {action}ped instance {instance_id}[/green]")
+                console.print(
+                    f"[green]Successfully {action}ped instance {instance_id}[/green]"
+                )
                 return instance_id, True, None
 
             except ApiError as e:
@@ -1245,19 +1316,21 @@ class InstanceAPI(BaseAPI):
                 console.print(
                     f"[bold red]API Error {action}ping instance {instance_id}:[/bold red] "
                     f"Status {e.status_code} - {e.response_body}",
-                    style="error"
+                    style="error",
                 )
                 return instance_id, False, error_msg
             except Exception as e:
                 error_msg = f"Unexpected Error: {str(e)}"
                 console.print(
                     f"[bold red]Unexpected Error {action}ping instance {instance_id}:[/bold red] {e}",
-                    style="error"
+                    style="error",
                 )
                 return instance_id, False, error_msg
 
         # Execute operations concurrently
-        console.print(f"\nStarting concurrent {action} operation (max_workers={max_workers})...")
+        console.print(
+            f"\nStarting concurrent {action} operation (max_workers={max_workers})..."
+        )
 
         processed_successfully = 0
         processed_failed = 0
@@ -1279,24 +1352,27 @@ class InstanceAPI(BaseAPI):
                         processed_successfully += 1
                     else:
                         processed_failed += 1
-                        error_details.append({
-                            "instance_id": result[0],
-                            "error": result[2]
-                        })
+                        error_details.append(
+                            {"instance_id": result[0], "error": result[2]}
+                        )
                 except Exception as exc:
                     console.print(
                         f"[bold red]Critical Error processing instance {instance_id}:[/bold red] {exc}",
-                        style="error"
+                        style="error",
                     )
                     processed_failed += 1
-                    error_details.append({
-                        "instance_id": instance_id,
-                        "error": f"Future Execution Error: {str(exc)}"
-                    })
+                    error_details.append(
+                        {
+                            "instance_id": instance_id,
+                            "error": f"Future Execution Error: {str(exc)}",
+                        }
+                    )
 
         # Final report
         console.print(f"\n[bold blue]Cleanup Operation Complete[/bold blue]")
-        console.print(f"  - Successfully {action}ped: [green]{processed_successfully}[/green]")
+        console.print(
+            f"  - Successfully {action}ped: [green]{processed_successfully}[/green]"
+        )
         console.print(f"  - Failed to {action}: [red]{processed_failed}[/red]")
         console.print(f"  - Kept alive: [cyan]{len(instances_to_keep)}[/cyan]")
 
@@ -1307,7 +1383,9 @@ class InstanceAPI(BaseAPI):
 
         success = processed_failed == 0
         if success:
-            console.print(f"[bold green]All targeted instances {action}ped successfully![/bold green]")
+            console.print(
+                f"[bold green]All targeted instances {action}ped successfully![/bold green]"
+            )
 
         return {
             "success": success,
@@ -1315,7 +1393,7 @@ class InstanceAPI(BaseAPI):
             "processed": processed_successfully,
             "failed": processed_failed,
             "kept": len(instances_to_keep),
-            "errors": error_details
+            "errors": error_details,
         }
 
     async def acleanup(
@@ -1346,6 +1424,7 @@ class InstanceAPI(BaseAPI):
             Dictionary with cleanup results including success/failure counts and details
         """
         import asyncio
+
         from rich.console import Console
 
         console = Console()
@@ -1353,9 +1432,13 @@ class InstanceAPI(BaseAPI):
         # Validate action parameter
         valid_actions = ["stop", "pause"]
         if action not in valid_actions:
-            raise ValueError(f"Invalid action '{action}'. Must be one of: {valid_actions}")
+            raise ValueError(
+                f"Invalid action '{action}'. Must be one of: {valid_actions}"
+            )
 
-        console.print(f"[bold blue]Starting Async MorphCloud Instance Cleanup[/bold blue]")
+        console.print(
+            f"[bold blue]Starting Async MorphCloud Instance Cleanup[/bold blue]"
+        )
         console.print(f"Action: [cyan]{action}[/cyan]")
 
         # List all instances
@@ -1366,10 +1449,18 @@ class InstanceAPI(BaseAPI):
 
             if not all_instances:
                 console.print("[green]No instances found. Nothing to clean up.[/green]")
-                return {"success": True, "total": 0, "processed": 0, "kept": 0, "errors": []}
+                return {
+                    "success": True,
+                    "total": 0,
+                    "processed": 0,
+                    "kept": 0,
+                    "errors": [],
+                }
 
         except Exception as e:
-            console.print(f"[bold red]Error listing instances:[/bold red] {e}", style="error")
+            console.print(
+                f"[bold red]Error listing instances:[/bold red] {e}", style="error"
+            )
             return {"success": False, "error": str(e)}
 
         # Filter instances (same logic as sync version)
@@ -1387,11 +1478,15 @@ class InstanceAPI(BaseAPI):
             if action == "stop":
                 if instance.status not in [InstanceStatus.READY, InstanceStatus.PAUSED]:
                     should_process = False
-                    reasons_to_keep.append(f"status is {instance.status.value} (not ready/paused)")
+                    reasons_to_keep.append(
+                        f"status is {instance.status.value} (not ready/paused)"
+                    )
             elif action == "pause":
                 if instance.status != InstanceStatus.READY:
                     should_process = False
-                    reasons_to_keep.append(f"status is {instance.status.value} (not ready)")
+                    reasons_to_keep.append(
+                        f"status is {instance.status.value} (not ready)"
+                    )
 
             # Check exclude_paused flag
             if exclude_paused and instance.status == InstanceStatus.PAUSED:
@@ -1405,23 +1500,37 @@ class InstanceAPI(BaseAPI):
             def matches_any_pattern(value, pattern_list):
                 if not pattern_list:
                     return False
-                patterns = [p.strip() for p in pattern_list.split(',')]
+                patterns = [p.strip() for p in pattern_list.split(",")]
                 return any(fnmatch.fnmatch(value, pattern) for pattern in patterns)
 
             # Include pattern check
-            if snapshot_pattern and not matches_any_pattern(snapshot_id, snapshot_pattern):
+            if snapshot_pattern and not matches_any_pattern(
+                snapshot_id, snapshot_pattern
+            ):
                 should_process = False
-                reasons_to_keep.append(f"snapshot ID '{snapshot_id}' doesn't match patterns '{snapshot_pattern}'")
-            elif snapshot_pattern and matches_any_pattern(snapshot_id, snapshot_pattern):
-                reasons_to_process.append(f"snapshot ID matches patterns '{snapshot_pattern}'")
+                reasons_to_keep.append(
+                    f"snapshot ID '{snapshot_id}' doesn't match patterns '{snapshot_pattern}'"
+                )
+            elif snapshot_pattern and matches_any_pattern(
+                snapshot_id, snapshot_pattern
+            ):
+                reasons_to_process.append(
+                    f"snapshot ID matches patterns '{snapshot_pattern}'"
+                )
 
             # Exclude pattern check
-            if snapshot_exclude_pattern and matches_any_pattern(snapshot_id, snapshot_exclude_pattern):
+            if snapshot_exclude_pattern and matches_any_pattern(
+                snapshot_id, snapshot_exclude_pattern
+            ):
                 should_process = False
-                reasons_to_keep.append(f"snapshot ID '{snapshot_id}' matches exclude patterns '{snapshot_exclude_pattern}'")
+                reasons_to_keep.append(
+                    f"snapshot ID '{snapshot_id}' matches exclude patterns '{snapshot_exclude_pattern}'"
+                )
 
             # Check service patterns
-            exposed_service_names = {service.name for service in instance.networking.http_services}
+            exposed_service_names = {
+                service.name for service in instance.networking.http_services
+            }
 
             if service_pattern or service_exclude_pattern:
                 service_match_found = False
@@ -1431,28 +1540,40 @@ class InstanceAPI(BaseAPI):
 
                 for service_name in exposed_service_names:
                     # Include pattern check (keep instances with these services)
-                    if service_pattern and matches_any_pattern(service_name, service_pattern):
+                    if service_pattern and matches_any_pattern(
+                        service_name, service_pattern
+                    ):
                         service_match_found = True
                         matching_keep_services.append(service_name)
 
                     # Exclude pattern check (also keep instances with these services)
-                    if service_exclude_pattern and matches_any_pattern(service_name, service_exclude_pattern):
+                    if service_exclude_pattern and matches_any_pattern(
+                        service_name, service_exclude_pattern
+                    ):
                         service_exclude_found = True
                         matching_exclude_services.append(service_name)
 
                 # If service_pattern is provided and we have matches, keep this instance
                 if service_pattern and service_match_found:
                     should_process = False
-                    reasons_to_keep.append(f"services {matching_keep_services} match keep patterns '{service_pattern}'")
-                # If service_exclude_pattern is provided and we have matches, keep this instance  
+                    reasons_to_keep.append(
+                        f"services {matching_keep_services} match keep patterns '{service_pattern}'"
+                    )
+                # If service_exclude_pattern is provided and we have matches, keep this instance
                 elif service_exclude_pattern and service_exclude_found:
                     should_process = False
-                    reasons_to_keep.append(f"services {matching_exclude_services} match exclude patterns '{service_exclude_pattern}' (excluded from processing)")
+                    reasons_to_keep.append(
+                        f"services {matching_exclude_services} match exclude patterns '{service_exclude_pattern}' (excluded from processing)"
+                    )
                 # If we have service patterns but no matches, this instance can be processed
                 elif service_pattern and not service_match_found:
-                    reasons_to_process.append(f"no services match keep patterns '{service_pattern}'")
+                    reasons_to_process.append(
+                        f"no services match keep patterns '{service_pattern}'"
+                    )
                 elif service_exclude_pattern and not service_exclude_found:
-                    reasons_to_process.append(f"no services match exclude patterns '{service_exclude_pattern}'")
+                    reasons_to_process.append(
+                        f"no services match exclude patterns '{service_exclude_pattern}'"
+                    )
 
             # Final decision
             if should_process:
@@ -1471,7 +1592,9 @@ class InstanceAPI(BaseAPI):
         # Summary
         console.print(f"\n[bold]Summary:[/bold]")
         console.print(f"  - Instances to keep: [green]{len(instances_to_keep)}[/green]")
-        console.print(f"  - Instances to {action}: [yellow]{len(instances_to_process)}[/yellow]")
+        console.print(
+            f"  - Instances to {action}: [yellow]{len(instances_to_process)}[/yellow]"
+        )
 
         if not instances_to_process:
             console.print(f"\n[green]No instances marked for {action}ing.[/green]")
@@ -1480,12 +1603,14 @@ class InstanceAPI(BaseAPI):
                 "total": len(all_instances),
                 "processed": 0,
                 "kept": len(instances_to_keep),
-                "errors": []
+                "errors": [],
             }
 
         # User confirmation (run in thread to avoid blocking)
         if confirm:
-            console.print(f"\n[bold yellow]Ready to {action} {len(instances_to_process)} instances.[/bold yellow]")
+            console.print(
+                f"\n[bold yellow]Ready to {action} {len(instances_to_process)} instances.[/bold yellow]"
+            )
 
             if instances_to_process:
                 # Display table of instances to be processed
@@ -1493,19 +1618,31 @@ class InstanceAPI(BaseAPI):
 
                 # Helper function to print table
                 def print_instance_table(instances, title_color="yellow"):
-                    headers = ["Instance ID", "Snapshot ID", "Status", "VCPUs", "Memory (MB)", "Services"]
+                    headers = [
+                        "Instance ID",
+                        "Snapshot ID",
+                        "Status",
+                        "VCPUs",
+                        "Memory (MB)",
+                        "Services",
+                    ]
                     rows = []
 
                     for inst in instances:
-                        services = ", ".join(f"{svc.name}:{svc.port}" for svc in inst.networking.http_services)
-                        rows.append([
-                            inst.id,
-                            inst.refs.snapshot_id,
-                            inst.status.value,
-                            str(inst.spec.vcpus),
-                            str(inst.spec.memory),
-                            services if services else "None"
-                        ])
+                        services = ", ".join(
+                            f"{svc.name}:{svc.port}"
+                            for svc in inst.networking.http_services
+                        )
+                        rows.append(
+                            [
+                                inst.id,
+                                inst.refs.snapshot_id,
+                                inst.status.value,
+                                str(inst.spec.vcpus),
+                                str(inst.spec.memory),
+                                services if services else "None",
+                            ]
+                        )
 
                     # Calculate column widths
                     widths = []
@@ -1520,7 +1657,9 @@ class InstanceAPI(BaseAPI):
                     header_line = "  "
                     for i, header in enumerate(headers):
                         header_line += f"{header:<{widths[i]}}  "
-                    console.print(f"[bold {title_color}]{header_line}[/bold {title_color}]")
+                    console.print(
+                        f"[bold {title_color}]{header_line}[/bold {title_color}]"
+                    )
 
                     # Print separator
                     separator_line = "  "
@@ -1538,13 +1677,19 @@ class InstanceAPI(BaseAPI):
                 print_instance_table(instances_to_process, "yellow")
 
             if instances_to_keep:
-                console.print(f"\n[bold green]Instances that will be kept ({len(instances_to_keep)}):[/bold green]")
+                console.print(
+                    f"\n[bold green]Instances that will be kept ({len(instances_to_keep)}):[/bold green]"
+                )
                 print_instance_table(instances_to_keep, "green")
 
             response = await asyncio.to_thread(
-                lambda: input(f"\nDo you want to proceed to {action} {len(instances_to_process)} instances? (y/N): ").lower().strip()
+                lambda: input(
+                    f"\nDo you want to proceed to {action} {len(instances_to_process)} instances? (y/N): "
+                )
+                .lower()
+                .strip()
             )
-            if response not in ['y', 'yes']:
+            if response not in ["y", "yes"]:
                 console.print("[cyan]Operation cancelled by user.[/cyan]")
                 return {
                     "success": True,
@@ -1552,22 +1697,28 @@ class InstanceAPI(BaseAPI):
                     "processed": 0,
                     "kept": len(all_instances),
                     "cancelled": True,
-                    "errors": []
+                    "errors": [],
                 }
 
         # Async worker function
-        async def process_instance_worker(instance: Instance) -> typing.Tuple[str, bool, typing.Optional[str]]:
+        async def process_instance_worker(
+            instance: Instance,
+        ) -> typing.Tuple[str, bool, typing.Optional[str]]:
             """Async worker function to process a single instance."""
             instance_id = instance.id
             try:
-                console.print(f"[yellow]Attempting to {action} instance {instance_id}...")
+                console.print(
+                    f"[yellow]Attempting to {action} instance {instance_id}..."
+                )
 
                 if action == "stop":
                     await instance.astop()
                 elif action == "pause":
                     await instance.apause()
 
-                console.print(f"[green]Successfully {action}ped instance {instance_id}[/green]")
+                console.print(
+                    f"[green]Successfully {action}ped instance {instance_id}[/green]"
+                )
                 return instance_id, True, None
 
             except ApiError as e:
@@ -1575,19 +1726,21 @@ class InstanceAPI(BaseAPI):
                 console.print(
                     f"[bold red]API Error {action}ping instance {instance_id}:[/bold red] "
                     f"Status {e.status_code} - {e.response_body}",
-                    style="error"
+                    style="error",
                 )
                 return instance_id, False, error_msg
             except Exception as e:
                 error_msg = f"Unexpected Error: {str(e)}"
                 console.print(
                     f"[bold red]Unexpected Error {action}ping instance {instance_id}:[/bold red] {e}",
-                    style="error"
+                    style="error",
                 )
                 return instance_id, False, error_msg
 
         # Execute operations concurrently with asyncio
-        console.print(f"\nStarting concurrent {action} operation (max_concurrency={max_concurrency})...")
+        console.print(
+            f"\nStarting concurrent {action} operation (max_concurrency={max_concurrency})..."
+        )
 
         # Use asyncio semaphore to limit concurrency
         semaphore = asyncio.Semaphore(max_concurrency)
@@ -1610,27 +1763,30 @@ class InstanceAPI(BaseAPI):
                 instance_id = instances_to_process[i].id
                 console.print(
                     f"[bold red]Critical Error processing instance {instance_id}:[/bold red] {result}",
-                    style="error"
+                    style="error",
                 )
                 processed_failed += 1
-                error_details.append({
-                    "instance_id": instance_id,
-                    "error": f"Task Exception: {str(result)}"
-                })
+                error_details.append(
+                    {
+                        "instance_id": instance_id,
+                        "error": f"Task Exception: {str(result)}",
+                    }
+                )
             else:
                 instance_id, success, error_msg = result
                 if success:
                     processed_successfully += 1
                 else:
                     processed_failed += 1
-                    error_details.append({
-                        "instance_id": instance_id,
-                        "error": error_msg
-                    })
+                    error_details.append(
+                        {"instance_id": instance_id, "error": error_msg}
+                    )
 
         # Final report
         console.print(f"\n[bold blue]Async Cleanup Operation Complete[/bold blue]")
-        console.print(f"  - Successfully {action}ped: [green]{processed_successfully}[/green]")
+        console.print(
+            f"  - Successfully {action}ped: [green]{processed_successfully}[/green]"
+        )
         console.print(f"  - Failed to {action}: [red]{processed_failed}[/red]")
         console.print(f"  - Kept alive: [cyan]{len(instances_to_keep)}[/cyan]")
 
@@ -1641,7 +1797,9 @@ class InstanceAPI(BaseAPI):
 
         success = processed_failed == 0
         if success:
-            console.print(f"[bold green]All targeted instances {action}ped successfully![/bold green]")
+            console.print(
+                f"[bold green]All targeted instances {action}ped successfully![/bold green]"
+            )
 
         return {
             "success": success,
@@ -1649,8 +1807,9 @@ class InstanceAPI(BaseAPI):
             "processed": processed_successfully,
             "failed": processed_failed,
             "kept": len(instances_to_keep),
-            "errors": error_details
+            "errors": error_details,
         }
+
 
 class Instance(BaseModel):
     _api: InstanceAPI = PrivateAttr()

@@ -1376,6 +1376,7 @@ def boot_instance(snapshot_id, vcpus, memory, disk_size, metadata_options):
     except Exception as e:
         handle_api_error(e)
 
+
 @instance.command("cleanup")
 @click.option(
     "--snapshot-pattern",
@@ -1390,7 +1391,7 @@ def boot_instance(snapshot_id, vcpus, memory, disk_size, metadata_options):
     help="Comma-separated glob patterns to match exposed service names (instances with matching services are kept alive)",
 )
 @click.option(
-    "--service-exclude-pattern", 
+    "--service-exclude-pattern",
     help="Comma-separated glob patterns to exclude service names (instances with matching services are processed)",
 )
 @click.option(
@@ -1411,13 +1412,15 @@ def boot_instance(snapshot_id, vcpus, memory, disk_size, metadata_options):
     help="Maximum number of concurrent operations",
 )
 @click.option(
-    "--yes", "-y",
+    "--yes",
+    "-y",
     is_flag=True,
     default=False,
     help="Skip confirmation prompt and proceed immediately",
 )
 @click.option(
-    "--json", "json_mode",
+    "--json",
+    "json_mode",
     is_flag=True,
     default=False,
     help="Output results in JSON format",
@@ -1435,35 +1438,35 @@ def cleanup_instances(
 ):
     """
     Clean up instances based on various filtering criteria.
-    
+
     All pattern options support comma-separated lists of glob patterns.
-    
+
     Examples:
-    
+
       # Stop all instances from dev snapshots
       morph instance cleanup --snapshot-pattern "snapshot_dev_*"
-      
+
       # Stop instances from multiple snapshot patterns
       morph instance cleanup --snapshot-pattern "snapshot_dev_*,snapshot_test_*,snapshot_tmp_*"
-      
+
       # Keep instances exposing webhook or monitoring services, stop everything else
       morph instance cleanup --service-pattern "*webhook*,*monitor*"
-      
+
       # Clean up test instances but exclude production snapshots
       morph instance cleanup --snapshot-pattern "snapshot_test_*" --snapshot-exclude-pattern "snapshot_prod_*,snapshot_staging_*"
-      
+
       # Pause instances that don't have monitoring or logging services
       morph instance cleanup --service-exclude-pattern "*monitor*,*log*" --action pause
-      
+
       # Skip confirmation for automated scripts
       morph instance cleanup --snapshot-pattern "snapshot_temp_*" --yes
     """
     client = get_client()
-    
+
     try:
         # Use confirmation unless --yes flag is provided
         confirm = not yes
-        
+
         result = client.instances.cleanup(
             snapshot_pattern=snapshot_pattern,
             snapshot_exclude_pattern=snapshot_exclude_pattern,
@@ -1474,7 +1477,7 @@ def cleanup_instances(
             max_workers=max_workers,
             confirm=confirm,
         )
-        
+
         if json_mode:
             click.echo(json.dumps(result, indent=2))
         else:
@@ -1486,7 +1489,7 @@ def cleanup_instances(
                 elif result["processed"] > 0:
                     click.secho(
                         f"✅ Successfully {action}{'ped' if action == 'stop' else 'd'} {result['processed']} instances.",
-                        fg="green"
+                        fg="green",
                     )
                 else:
                     click.secho("No instances needed cleanup.", fg="green")
@@ -1494,9 +1497,13 @@ def cleanup_instances(
                 if "error" in result:
                     click.secho(f"❌ Error: {result['error']}", fg="red", err=True)
                 else:
-                    click.secho(f"❌ {result['failed']} instances failed to {action}.", fg="red", err=True)
+                    click.secho(
+                        f"❌ {result['failed']} instances failed to {action}.",
+                        fg="red",
+                        err=True,
+                    )
                     sys.exit(1)
-                    
+
     except api.ApiError as e:
         click.echo(f"API Error (Status Code: {e.status_code})", err=True)
         click.echo(f"Response Body: {e.response_body}", err=True)
