@@ -14,7 +14,6 @@ from functools import lru_cache
 
 import httpx
 from pydantic import BaseModel, Field, PrivateAttr
-
 # Import Rich for fancy printing
 from rich.console import Console
 from rich.live import Live
