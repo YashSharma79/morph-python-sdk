@@ -1122,7 +1122,7 @@ class InstanceAPI(BaseAPI):
                 patterns = [p.strip() for p in pattern_list.split(",")]
                 return any(fnmatch.fnmatch(value, pattern) for pattern in patterns)
 
-            # Include pattern check
+            # Include snapshot pattern check
             if snapshot_pattern and not matches_any_pattern(
                 snapshot_id, snapshot_pattern
             ):
@@ -1172,11 +1172,10 @@ class InstanceAPI(BaseAPI):
                         service_exclude_found = True
                         matching_exclude_services.append(service_name)
 
-                # If service_pattern is provided and we have matches, keep this instance
+                # If service_pattern is provided and we have matches, remove this instance
                 if service_pattern and service_match_found:
-                    should_process = False
                     reasons_to_keep.append(
-                        f"services {matching_keep_services} match keep patterns '{service_pattern}'"
+                        f"services {matching_keep_services} match cleanup patterns '{service_pattern}'"
                     )
                 # If service_exclude_pattern is provided and we have matches, keep this instance
                 elif service_exclude_pattern and service_exclude_found:
@@ -1184,8 +1183,9 @@ class InstanceAPI(BaseAPI):
                     reasons_to_keep.append(
                         f"services {matching_exclude_services} match exclude patterns '{service_exclude_pattern}' (excluded from processing)"
                     )
-                # If we have service patterns but no matches, this instance can be processed
+                # If we have service patterns but no matches, this instance should be kept
                 elif service_pattern and not service_match_found:
+                    should_process = False
                     reasons_to_process.append(
                         f"no services match keep patterns '{service_pattern}'"
                     )
