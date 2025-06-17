@@ -1020,6 +1020,62 @@ def set_instance_ttl(instance_id, ttl_seconds, ttl_action):
             handle_api_error(e)
     except Exception as e:
         handle_api_error(e)
+        
+@instance.command("set-wake-on")
+@click.argument("instance_id")
+@click.option(
+    "--ssh",
+    "wake_on_ssh",
+    type=click.BOOL,
+    default=None,
+    help="Enable or disable wake-on-SSH. Accepts true/false.",
+)
+@click.option(
+    "--http",
+    "wake_on_http",
+    type=click.BOOL,
+    default=None,
+    help="Enable or disable wake-on-HTTP. Accepts true/false.",
+)
+def set_wake_on(instance_id, wake_on_ssh, wake_on_http):
+    """
+    Configure the wake-on-event settings for an instance.
+    """
+    if wake_on_ssh is None and wake_on_http is None:
+        click.echo("Error: You must specify at least one option: --ssh or --http.", err=True)
+        sys.exit(1)
+
+    client = get_client()
+    try:
+        instance_obj = client.instances.get(instance_id)
+
+        # Build a readable string for the spinner
+        changes = []
+        if wake_on_ssh is not None:
+            changes.append(f"wake-on-ssh to {wake_on_ssh}")
+        if wake_on_http is not None:
+            changes.append(f"wake-on-http to {wake_on_http}")
+        change_str = " and ".join(changes)
+
+        with Spinner(
+            text=f"Setting {change_str} for {instance_id}...",
+            success_text="Wake-on-event settings updated successfully!",
+            success_emoji="⚙️",
+        ):
+            instance_obj.set_wake_on(
+                wake_on_ssh=wake_on_ssh, wake_on_http=wake_on_http
+            )
+
+        click.secho(f"Successfully updated settings for {instance_id}.", fg="green")
+
+    except api.ApiError as e:
+        if e.status_code == 404:
+            click.echo(f"Error: Instance '{instance_id}' not found.", err=True)
+            sys.exit(1)
+        else:
+            handle_api_error(e)
+    except Exception as e:
+        handle_api_error(e)
 
 
 @instance.command("ssh")
@@ -1042,21 +1098,34 @@ def ssh_portal(instance_id, rm, create_snapshot_on_exit, remote_command):
     try:
         instance_obj = client.instances.get(instance_id)
 
-        # Spinner for waiting
-        with Spinner(
-            text=f"Waiting for instance {instance_id} to be ready...",
-            success_text=f"Instance ready: {instance_id}",
-            success_emoji="⚡",
-        ):
-            instance_obj.wait_until_ready(timeout=300)
+        # --- REFACTORED BLOCK: Explicit status check ---
+        status = instance_obj.status
+        if status == api.InstanceStatus.PAUSED:
+            # Check if wake-on-ssh is enabled
+            if instance_obj.wake_on.wake_on_ssh:
+                click.secho(f"Instance {instance_id} is PAUSED. Attempting to resume via wake-on-SSH...", fg="yellow")
+            else:
+                click.echo(
+                    f"Error: Instance {instance_id} is PAUSED and wake-on-SSH is not enabled.", err=True
+                )
+                click.echo("Please run 'morph instance resume <INSTANCE_ID>' first.", err=True)
+                sys.exit(1)
+        elif status == api.InstanceStatus.PENDING:
+            click.secho(f"Instance {instance_id} is PENDING, waiting for it to become ready...", fg="cyan")
+        elif status != api.InstanceStatus.READY:
+            click.echo(f"Error: Cannot SSH into instance with status '{status.value}'.", err=True)
+            sys.exit(1)
+        # --- END OF REFACTORED BLOCK ---
 
-        # Spinner for connecting
+        # The rest of the function remains the same, as the SDK's ssh() method
+        # handles the connection details.
         with Spinner(
             text="Connecting via SSH...",
             success_text="SSH connection established",
             success_emoji="🔌",
             color="cyan",
         ):
+            # The instance_obj.ssh() call will trigger the auto-resume logic in the SDK
             ssh_ctx = instance_obj.ssh()
             ssh = ssh_ctx.__enter__()
 
@@ -1096,7 +1165,6 @@ def ssh_portal(instance_id, rm, create_snapshot_on_exit, remote_command):
         handle_api_error(e)
     finally:
         if instance_obj:
-            # Optionally spin for snapshot creation
             if create_snapshot_on_exit:
                 with Spinner(
                     text="Creating snapshot before exiting...",
@@ -1370,6 +1438,56 @@ def boot_instance(snapshot_id, vcpus, memory, disk_size, metadata_options):
     except api.ApiError as e:
         if e.status_code == 404:
             click.echo(f"Error: Snapshot '{snapshot_id}' not found.", err=True)
+            sys.exit(1)
+        else:
+            handle_api_error(e)
+    except Exception as e:
+        handle_api_error(e)
+
+@instance.command("ssh-key")
+@click.argument("instance_id")
+@click.option(
+    "--password",
+    "show_password_only",
+    is_flag=True,
+    help="Output only the value of the password field.",
+)
+def ssh_key(instance_id, show_password_only):
+    """
+    Retrieve the SSH key details for an instance.
+
+    This key is ephemeral and is used for establishing the SSH connection.
+    """
+    client = get_client()
+    try:
+        # A spinner provides better UX for network requests.
+        with Spinner(
+            text=f"Retrieving SSH key for instance {instance_id}...",
+            success_text="SSH key retrieved!",
+            success_emoji="🔑",
+        ):
+            # Per the request, this command calls the endpoint directly.
+            # It accesses the internal http_client from the main client object.
+            response = client._http_client.get(f"/instance/{instance_id}/ssh/key")
+            key_data = response.json()
+
+        if show_password_only:
+            # If the --password flag is used, print only that value.
+            password = key_data.get("password")
+            if password is not None:
+                click.echo(password)
+            else:
+                # Handle cases where the key might be missing from the response.
+                click.echo("Error: 'password' field not found in the API response.", err=True)
+                sys.exit(1)
+        else:
+            # Print the full key details in a formatted JSON output.
+            click.echo(format_json(key_data))
+
+
+    except api.ApiError as e:
+        if e.status_code == 404:
+            click.echo(f"Error: Instance '{instance_id}' not found.", err=True)
             sys.exit(1)
         else:
             handle_api_error(e)

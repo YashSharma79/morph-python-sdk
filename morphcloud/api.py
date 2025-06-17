@@ -90,6 +90,17 @@ class AsyncApiClient(httpx.AsyncClient):
             await self.raise_for_status(response)
         return response
 
+class TTL(BaseModel):
+    """Represents the Time-To-Live configuration for an instance."""
+    ttl_seconds: typing.Optional[int] = Field(None, description="Time in seconds until the action is triggered.")
+    ttl_expire_at: typing.Optional[int] = Field(None, description="Unix timestamp when the instance is set to expire.")
+    ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = Field("stop", description="Action to take when TTL expires.")
+    
+class WakeOn(BaseModel):
+    """Represents the wake-on-event configuration for an instance."""
+    wake_on_ssh: bool = Field(False, description="Whether the instance should wake on an SSH attempt.")
+    wake_on_http: bool = Field(False, description="Whether the instance should wake on an HTTP request.")
+
 
 class MorphCloudClient:
     def __init__(
@@ -1867,6 +1878,8 @@ class Instance(BaseModel):
     spec: ResourceSpec
     refs: InstanceRefs
     networking: InstanceNetworking
+    ttl: TTL = Field(default_factory=TTL)
+    wake_on: WakeOn = Field(default_factory=WakeOn)
     metadata: typing.Dict[str, str] = Field(
         default_factory=dict,
         description="User provided metadata for the instance",
@@ -2157,6 +2170,64 @@ class Instance(BaseModel):
         response.raise_for_status()
         await self._refresh_async()
 
+    def set_wake_on(
+        self,
+        wake_on_ssh: typing.Optional[bool] = None,
+        wake_on_http: typing.Optional[bool] = None,
+    ) -> None:
+        """
+        Configure the wake-on-event settings for the instance.
+
+        Parameters:
+            wake_on_ssh: If true, the instance will wake from pause on an SSH attempt.
+            wake_on_http: If true, the instance will wake from pause on an HTTP request.
+        """
+        payload = {}
+        if wake_on_ssh is not None:
+            payload["wake_on_ssh"] = wake_on_ssh
+        if wake_on_http is not None:
+            payload["wake_on_http"] = wake_on_http
+
+        if not payload:
+            # Nothing to do if no parameters are provided
+            return
+
+        response = self._api._client._http_client.post(
+            f"/instance/{self.id}/wake-on",
+            json=payload,
+        )
+        response.raise_for_status()
+        self._refresh()
+        
+    async def aset_wake_on(
+        self,
+        wake_on_ssh: typing.Optional[bool] = None,
+        wake_on_http: typing.Optional[bool] = None,
+    ) -> None:
+        """
+        Asynchronously configure the wake-on-event settings for the instance.
+
+        Parameters:
+            wake_on_ssh: If true, the instance will wake from pause on an SSH attempt.
+            wake_on_http: If true, the instance will wake from pause on an HTTP request.
+        """
+        payload = {}
+        if wake_on_ssh is not None:
+            payload["wake_on_ssh"] = wake_on_ssh
+        if wake_on_http is not None:
+            payload["wake_on_http"] = wake_on_http
+
+        if not payload:
+            # Nothing to do if no parameters are provided
+            return
+
+        response = await self._api._client._async_http_client.post(
+            f"/instance/{self.id}/wake-on",
+            json=payload,
+        )
+        response.raise_for_status()
+        await self._refresh_async()
+
     def _refresh(self) -> None:
         refreshed = self._api.get(self.id)
         updated = type(self).model_validate(refreshed.model_dump())
@@ -2183,6 +2254,21 @@ class Instance(BaseModel):
             raise ValueError("API key must be provided to connect to the instance")
 
         username = self.id + ":" + self._api._client.api_key
+
+        if self.status == InstanceStatus.PAUSED:
+            self._refresh()
+            # Update this condition to use the nested WakeOn model
+            if self.wake_on.wake_on_ssh:
+                console.print(f"[yellow]Instance {self.id} is paused. Resuming for SSH access...[/yellow]")
+                self.resume()
+                console.print(f"[yellow]Waiting for instance {self.id} to become ready...[/yellow]")
+                self.wait_until_ready(timeout=300)
+                console.print(f"[green]Instance {self.id} is now ready.[/green]")
+            else :
+                raise RuntimeError(
+                    f"Instance {self.id} is paused and wake_on_ssh is not enabled. Cannot connect via SSH."
+                )
+
 
         client.connect(
             hostname,
@@ -2506,6 +2592,39 @@ class Instance(BaseModel):
                 console.print(f"[bold red]{error_msg}[/bold red]")
                 raise RuntimeError(error_msg)
 
+            console.print("[blue]Testing container status and connectivity...[/blue]")
+
+            # Check if container is running
+            status_result = ssh.run(["docker", "inspect", container_name, "--format", "{{.State.Status}}"])
+            if status_result.exit_code != 0 or status_result.stdout.strip() != "running":
+                # Get detailed container information
+                logs_result = ssh.run(["docker", "logs", "--tail=20", container_name])
+                ps_result = ssh.run(["docker", "ps", "-a", "--filter", f"name={container_name}"])
+                
+                error_msg = f"""Container '{container_name}' is not running properly.
+            Status: {status_result.stdout.strip() if status_result.exit_code == 0 else 'unknown'}
+
+            Container info:
+            {ps_result.stdout if ps_result.exit_code == 0 else 'Could not get container info'}
+
+            Recent logs:
+            {logs_result.stdout if logs_result.exit_code == 0 else 'Could not get logs'}"""
+                
+                console.print(f"[bold red]{error_msg}[/bold red]")
+                raise RuntimeError(f"Container '{container_name}' failed to start properly")
+
+            # Test shell availability
+            shell_test_result = ssh.run(["docker", "exec", container_name, "echo", "test"])
+            if shell_test_result.exit_code != 0:
+                console.print("[yellow]Warning: Container is running but not responsive to commands[/yellow]")
+                
+                # Get more debugging info
+                logs_result = ssh.run(["docker", "logs", "--tail=10", container_name])
+                console.print(f"[yellow]Recent container logs:\n{logs_result.stdout}[/yellow]")
+                
+            else:
+                console.print("[green]Container is running and responsive[/green]")
+
             # Create improved container.sh script with TTY detection
             container_script = (
                 f"""#!/bin/bash
@@ -2514,46 +2633,136 @@ class Instance(BaseModel):
     CONTAINER_NAME={container_name}"""
                 + """
 
-    # Function to check if the container has the specified shell
-    check_shell() {
-        if docker exec "$CONTAINER_NAME" which "$1" >/dev/null 2>&1; then
-            echo "$1"
-            return 0
-        fi
+# Function to check container status and provide detailed error information
+check_container_status() {
+    # Check if container exists at all
+    if ! docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+        echo "ERROR: Container '$CONTAINER_NAME' does not exist." >&2
+        echo "Available containers:" >&2
+        docker ps -a --format "table {{.Names}}\\t{{.Status}}\\t{{.Image}}" >&2
         return 1
-    }
-
-    # Determine the best shell available in the container
-    SHELL_TO_USE=""
-    for shell in bash sh ash; do
-        if SHELL_PATH=$(check_shell "$shell"); then
-            SHELL_TO_USE="$SHELL_PATH"
-            break
-        fi
-    done
-
-    # If no shell was found, fail gracefully
-    if [ -z "$SHELL_TO_USE" ]; then
-        echo "Error: No usable shell found in container. Container might be too minimal." >&2
-        exit 1
     fi
 
-    if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
-        # Interactive login shell - use -it flags but WITHOUT -l
-        # This is for when users SSH in directly without a command
-        exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE"
+    # Get container status
+    CONTAINER_STATUS=$(docker inspect "$CONTAINER_NAME" --format "{{.State.Status}}" 2>/dev/null)
+    
+    if [ "$CONTAINER_STATUS" != "running" ]; then
+        echo "ERROR: Container '$CONTAINER_NAME' is not running." >&2
+        echo "Current status: $CONTAINER_STATUS" >&2
+        
+        case "$CONTAINER_STATUS" in
+            "exited")
+                EXIT_CODE=$(docker inspect "$CONTAINER_NAME" --format "{{.State.ExitCode}}" 2>/dev/null)
+                echo "Container exited with code: $EXIT_CODE" >&2
+                echo "" >&2
+                echo "Recent container logs:" >&2
+                docker logs --tail=20 "$CONTAINER_NAME" 2>&1 | sed 's/^/  /' >&2
+                ;;
+            "paused")
+                echo "Container is paused. Try: docker unpause $CONTAINER_NAME" >&2
+                ;;
+            "restarting")
+                RESTART_COUNT=$(docker inspect "$CONTAINER_NAME" --format "{{.RestartCount}}" 2>/dev/null)
+                echo "Container is stuck restarting (restart count: $RESTART_COUNT)" >&2
+                echo "" >&2
+                echo "Recent container logs:" >&2
+                docker logs --tail=20 "$CONTAINER_NAME" 2>&1 | sed 's/^/  /' >&2
+                ;;
+            "dead")
+                echo "Container is in a dead state. May need to remove and recreate." >&2
+                echo "" >&2
+                echo "Recent container logs:" >&2
+                docker logs --tail=20 "$CONTAINER_NAME" 2>&1 | sed 's/^/  /' >&2
+                ;;
+            *)
+                echo "Unknown container status: $CONTAINER_STATUS" >&2
+                echo "" >&2
+                echo "Container details:" >&2
+                docker inspect "$CONTAINER_NAME" --format "{{json .State}}" 2>&1 | sed 's/^/  /' >&2
+                ;;
+        esac
+        
+        echo "" >&2
+        echo "Container overview:" >&2
+        docker ps -a --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Command}}" >&2
+        
+        return 1
+    fi
+    
+    # Additional health check - try a simple command
+    if ! docker exec "$CONTAINER_NAME" echo "health-check" >/dev/null 2>&1; then
+        echo "ERROR: Container '$CONTAINER_NAME' is running but not responsive." >&2
+        echo "The container may be overloaded or in an unhealthy state." >&2
+        echo "" >&2
+        echo "Recent container logs:" >&2
+        docker logs --tail=20 "$CONTAINER_NAME" 2>&1 | sed 's/^/  /' >&2
+        echo "" >&2
+        echo "Container processes:" >&2
+        docker exec "$CONTAINER_NAME" ps aux 2>&1 | sed 's/^/  /' >&2 || echo "  Could not list processes" >&2
+        return 1
+    fi
+    
+    return 0
+}
+
+# Check container status before proceeding
+if ! check_container_status; then
+    echo "" >&2
+    echo "TROUBLESHOOTING TIPS:" >&2
+    echo "1. Check if the container image has issues: docker logs $CONTAINER_NAME" >&2
+    echo "2. Try restarting the container: docker restart $CONTAINER_NAME" >&2
+    echo "3. Check Docker daemon status: systemctl status docker" >&2
+    echo "4. Check available resources: df -h && free -h" >&2
+    exit 1
+fi
+
+# Function to check if the container has the specified shell
+check_shell() {
+    if docker exec "$CONTAINER_NAME" which "$1" >/dev/null 2>&1; then
+        echo "$1"
+        return 0
+    fi
+    return 1
+}
+
+# Determine the best shell available in the container
+SHELL_TO_USE=""
+for shell in bash sh ash; do
+    if SHELL_PATH=$(check_shell "$shell"); then
+        SHELL_TO_USE="$SHELL_PATH"
+        break
+    fi
+done
+
+# If no shell was found, provide better error messaging
+if [ -z "$SHELL_TO_USE" ]; then
+    echo "ERROR: No usable shell found in container '$CONTAINER_NAME'." >&2
+    echo "This usually means the container is too minimal (like distroless images)." >&2
+    echo "" >&2
+    echo "Available executables in common locations:" >&2
+    docker exec "$CONTAINER_NAME" find /bin /usr/bin -type f -executable 2>/dev/null | head -10 | sed 's/^/  /' >&2 || echo "  Could not list executables" >&2
+    echo "" >&2
+    echo "Container image details:" >&2
+    docker inspect "$CONTAINER_NAME" --format "{{.Config.Image}}" | sed 's/^/  Image: /' >&2
+    docker inspect "$CONTAINER_NAME" --format "{{.Config.Entrypoint}}" | sed 's/^/  Entrypoint: /' >&2
+    docker inspect "$CONTAINER_NAME" --format "{{.Config.Cmd}}" | sed 's/^/  Cmd: /' >&2
+    exit 1
+fi
+
+# Main execution logic
+if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
+    # Interactive login shell - use -it flags but WITHOUT -l
+    exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE"
+else
+    # Command execution - detect if TTY is available
+    if [ -t 0 ]; then
+        # TTY is available, use interactive mode WITHOUT -l
+        exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
     else
-        # Command execution - detect if TTY is available
-        if [ -t 0 ]; then
-            # TTY is available, use interactive mode WITHOUT -l
-            # This makes it a non-login interactive shell
-            exec docker exec -it "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
-        else
-            # No TTY available, run without -it flags and without -l
-            # This makes it a non-login, non-interactive shell
-            exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
-        fi
-    fi"""
+        # No TTY available, run without -it flags and without -l
+        exec docker exec "$CONTAINER_NAME" "$SHELL_TO_USE" -c "$SSH_ORIGINAL_COMMAND"
+    fi
+fi"""
             )
 
             # Write the container.sh script to the instance
@@ -2580,7 +2789,7 @@ class Instance(BaseModel):
             ssh.run(["systemctl", "restart", "sshd"])
 
             # Test the container setup
-            console.print("[blue]Testing container connectivity...[/blue]")
+            console.print("[blue]Testing ssh redirection...[/blue]")
             test_result = ssh.run('echo "Container setup test"')
             if test_result.returncode != 0:
                 console.print(
