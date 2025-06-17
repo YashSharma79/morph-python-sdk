@@ -1020,7 +1020,8 @@ def set_instance_ttl(instance_id, ttl_seconds, ttl_action):
             handle_api_error(e)
     except Exception as e:
         handle_api_error(e)
-        
+
+
 @instance.command("set-wake-on")
 @click.argument("instance_id")
 @click.option(
@@ -1042,7 +1043,9 @@ def set_wake_on(instance_id, wake_on_ssh, wake_on_http):
     Configure the wake-on-event settings for an instance.
     """
     if wake_on_ssh is None and wake_on_http is None:
-        click.echo("Error: You must specify at least one option: --ssh or --http.", err=True)
+        click.echo(
+            "Error: You must specify at least one option: --ssh or --http.", err=True
+        )
         sys.exit(1)
 
     client = get_client()
@@ -1062,9 +1065,7 @@ def set_wake_on(instance_id, wake_on_ssh, wake_on_http):
             success_text="Wake-on-event settings updated successfully!",
             success_emoji="⚙️",
         ):
-            instance_obj.set_wake_on(
-                wake_on_ssh=wake_on_ssh, wake_on_http=wake_on_http
-            )
+            instance_obj.set_wake_on(wake_on_ssh=wake_on_ssh, wake_on_http=wake_on_http)
 
         click.secho(f"Successfully updated settings for {instance_id}.", fg="green")
 
@@ -1103,17 +1104,29 @@ def ssh_portal(instance_id, rm, create_snapshot_on_exit, remote_command):
         if status == api.InstanceStatus.PAUSED:
             # Check if wake-on-ssh is enabled
             if instance_obj.wake_on.wake_on_ssh:
-                click.secho(f"Instance {instance_id} is PAUSED. Attempting to resume via wake-on-SSH...", fg="yellow")
+                click.secho(
+                    f"Instance {instance_id} is PAUSED. Attempting to resume via wake-on-SSH...",
+                    fg="yellow",
+                )
             else:
                 click.echo(
-                    f"Error: Instance {instance_id} is PAUSED and wake-on-SSH is not enabled.", err=True
+                    f"Error: Instance {instance_id} is PAUSED and wake-on-SSH is not enabled.",
+                    err=True,
                 )
-                click.echo("Please run 'morph instance resume <INSTANCE_ID>' first.", err=True)
+                click.echo(
+                    "Please run 'morph instance resume <INSTANCE_ID>' first.", err=True
+                )
                 sys.exit(1)
         elif status == api.InstanceStatus.PENDING:
-            click.secho(f"Instance {instance_id} is PENDING, waiting for it to become ready...", fg="cyan")
+            click.secho(
+                f"Instance {instance_id} is PENDING, waiting for it to become ready...",
+                fg="cyan",
+            )
         elif status != api.InstanceStatus.READY:
-            click.echo(f"Error: Cannot SSH into instance with status '{status.value}'.", err=True)
+            click.echo(
+                f"Error: Cannot SSH into instance with status '{status.value}'.",
+                err=True,
+            )
             sys.exit(1)
         # --- END OF REFACTORED BLOCK ---
 
@@ -1444,6 +1457,7 @@ def boot_instance(snapshot_id, vcpus, memory, disk_size, metadata_options):
     except Exception as e:
         handle_api_error(e)
 
+
 @instance.command("ssh-key")
 @click.argument("instance_id")
 @click.option(
@@ -1478,12 +1492,13 @@ def ssh_key(instance_id, show_password_only):
                 click.echo(password)
             else:
                 # Handle cases where the key might be missing from the response.
-                click.echo("Error: 'password' field not found in the API response.", err=True)
+                click.echo(
+                    "Error: 'password' field not found in the API response.", err=True
+                )
                 sys.exit(1)
         else:
             # Print the full key details in a formatted JSON output.
             click.echo(format_json(key_data))
-
 
     except api.ApiError as e:
         if e.status_code == 404:

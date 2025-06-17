@@ -90,16 +90,30 @@ class AsyncApiClient(httpx.AsyncClient):
             await self.raise_for_status(response)
         return response
 
+
 class TTL(BaseModel):
     """Represents the Time-To-Live configuration for an instance."""
-    ttl_seconds: typing.Optional[int] = Field(None, description="Time in seconds until the action is triggered.")
-    ttl_expire_at: typing.Optional[int] = Field(None, description="Unix timestamp when the instance is set to expire.")
-    ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = Field("stop", description="Action to take when TTL expires.")
-    
+
+    ttl_seconds: typing.Optional[int] = Field(
+        None, description="Time in seconds until the action is triggered."
+    )
+    ttl_expire_at: typing.Optional[int] = Field(
+        None, description="Unix timestamp when the instance is set to expire."
+    )
+    ttl_action: typing.Optional[typing.Literal["stop", "pause"]] = Field(
+        "stop", description="Action to take when TTL expires."
+    )
+
+
 class WakeOn(BaseModel):
     """Represents the wake-on-event configuration for an instance."""
-    wake_on_ssh: bool = Field(False, description="Whether the instance should wake on an SSH attempt.")
-    wake_on_http: bool = Field(False, description="Whether the instance should wake on an HTTP request.")
+
+    wake_on_ssh: bool = Field(
+        False, description="Whether the instance should wake on an SSH attempt."
+    )
+    wake_on_http: bool = Field(
+        False, description="Whether the instance should wake on an HTTP request."
+    )
 
 
 class MorphCloudClient:
@@ -2198,7 +2212,7 @@ class Instance(BaseModel):
         )
         response.raise_for_status()
         self._refresh()
-        
+
     async def aset_wake_on(
         self,
         wake_on_ssh: typing.Optional[bool] = None,
@@ -2259,16 +2273,19 @@ class Instance(BaseModel):
             self._refresh()
             # Update this condition to use the nested WakeOn model
             if self.wake_on.wake_on_ssh:
-                console.print(f"[yellow]Instance {self.id} is paused. Resuming for SSH access...[/yellow]")
+                console.print(
+                    f"[yellow]Instance {self.id} is paused. Resuming for SSH access...[/yellow]"
+                )
                 self.resume()
-                console.print(f"[yellow]Waiting for instance {self.id} to become ready...[/yellow]")
+                console.print(
+                    f"[yellow]Waiting for instance {self.id} to become ready...[/yellow]"
+                )
                 self.wait_until_ready(timeout=300)
                 console.print(f"[green]Instance {self.id} is now ready.[/green]")
-            else :
+            else:
                 raise RuntimeError(
                     f"Instance {self.id} is paused and wake_on_ssh is not enabled. Cannot connect via SSH."
                 )
-
 
         client.connect(
             hostname,
@@ -2403,7 +2420,7 @@ class Instance(BaseModel):
         # Validate parameters
         if not image and not dockerfile:
             raise ValueError("Either 'image' or 'dockerfile' must be provided")
-        
+
         # Make sure the instance is ready
         self.wait_until_ready()
 
@@ -2479,59 +2496,85 @@ class Instance(BaseModel):
 
             # Handle image preparation (either pull existing or build from Dockerfile)
             final_image_name = image
-            
+
             if dockerfile:
                 # Build image from Dockerfile contents
                 console.print("[blue]Building Docker image from Dockerfile...[/blue]")
-                
+
                 # Generate a unique image name based on Dockerfile contents if not provided
                 if not image:
-                    dockerfile_hash = hashlib.sha256(dockerfile.encode()).hexdigest()[:12]
+                    dockerfile_hash = hashlib.sha256(dockerfile.encode()).hexdigest()[
+                        :12
+                    ]
                     final_image_name = f"morphcloud-custom:{dockerfile_hash}"
                 else:
                     final_image_name = image
-                
+
                 # Check if image already exists to avoid rebuilding
                 check_result = ssh.run(["docker", "images", "-q", final_image_name])
                 if check_result.exit_code == 0 and check_result.stdout.strip():
-                    console.print(f"[green]Image '{final_image_name}' already exists, skipping build.[/green]")
+                    console.print(
+                        f"[green]Image '{final_image_name}' already exists, skipping build.[/green]"
+                    )
                 else:
                     # Set up build context directory
                     build_dir = build_context or "/tmp/docker-build"
                     ssh.run(["mkdir", "-p", build_dir])
-                    
+
                     try:
                         # Write Dockerfile to remote instance
                         dockerfile_path = f"{build_dir}/Dockerfile"
                         ssh.write_file(dockerfile_path, dockerfile)
-                        console.print(f"[blue]Dockerfile written to {dockerfile_path}[/blue]")
-                        
+                        console.print(
+                            f"[blue]Dockerfile written to {dockerfile_path}[/blue]"
+                        )
+
                         # Build the Docker image
-                        console.print(f"[blue]Building image '{final_image_name}'...[/blue]")
-                        build_cmd = ["docker", "build", "-t", final_image_name, build_dir]
+                        console.print(
+                            f"[blue]Building image '{final_image_name}'...[/blue]"
+                        )
+                        build_cmd = [
+                            "docker",
+                            "build",
+                            "-t",
+                            final_image_name,
+                            build_dir,
+                        ]
                         build_result = ssh.run(build_cmd)
-                        
+
                         if build_result.exit_code != 0:
                             # Only include the last 50 lines of stdout for brevity
                             stdout_lines = build_result.stdout.splitlines()
-                            last_stdout = "\n".join(stdout_lines[-50:]) if len(stdout_lines) > 50 else build_result.stdout
+                            last_stdout = (
+                                "\n".join(stdout_lines[-50:])
+                                if len(stdout_lines) > 50
+                                else build_result.stdout
+                            )
                             error_msg = f"Failed to build Docker image: {last_stdout}"
                             raise RuntimeError(error_msg)
-                        
-                        console.print(f"[green]Successfully built image '{final_image_name}'[/green]")
-                        
+
+                        console.print(
+                            f"[green]Successfully built image '{final_image_name}'[/green]"
+                        )
+
                     finally:
                         # Clean up build directory
                         ssh.run(["rm", "-rf", build_dir])
-                        console.print(f"[blue]Cleaned up build directory {build_dir}[/blue]")
-            
+                        console.print(
+                            f"[blue]Cleaned up build directory {build_dir}[/blue]"
+                        )
+
             elif image:
                 # Pull the specified image if it doesn't exist locally
-                console.print(f"[blue]Checking if image '{image}' exists locally...[/blue]")
+                console.print(
+                    f"[blue]Checking if image '{image}' exists locally...[/blue]"
+                )
                 check_result = ssh.run(["docker", "images", "-q", image])
-                
+
                 if not check_result.stdout.strip():
-                    console.print(f"[blue]Image '{image}' not found locally, pulling...[/blue]")
+                    console.print(
+                        f"[blue]Image '{image}' not found locally, pulling...[/blue]"
+                    )
                     pull_result = ssh.run(["docker", "pull", image])
                     if pull_result.exit_code != 0:
                         error_msg = f"Failed to pull Docker image '{image}': {pull_result.stderr}"
@@ -2578,7 +2621,7 @@ class Instance(BaseModel):
             # Add the final image name and command
             docker_cmd.append(final_image_name)
 
-            docker_cmd.extend(["tail", "-f", "/dev/null"]) # Keep the container alive
+            docker_cmd.extend(["tail", "-f", "/dev/null"])  # Keep the container alive
 
             # Run the docker container
             console.print(
@@ -2595,12 +2638,19 @@ class Instance(BaseModel):
             console.print("[blue]Testing container status and connectivity...[/blue]")
 
             # Check if container is running
-            status_result = ssh.run(["docker", "inspect", container_name, "--format", "{{.State.Status}}"])
-            if status_result.exit_code != 0 or status_result.stdout.strip() != "running":
+            status_result = ssh.run(
+                ["docker", "inspect", container_name, "--format", "{{.State.Status}}"]
+            )
+            if (
+                status_result.exit_code != 0
+                or status_result.stdout.strip() != "running"
+            ):
                 # Get detailed container information
                 logs_result = ssh.run(["docker", "logs", "--tail=20", container_name])
-                ps_result = ssh.run(["docker", "ps", "-a", "--filter", f"name={container_name}"])
-                
+                ps_result = ssh.run(
+                    ["docker", "ps", "-a", "--filter", f"name={container_name}"]
+                )
+
                 error_msg = f"""Container '{container_name}' is not running properly.
             Status: {status_result.stdout.strip() if status_result.exit_code == 0 else 'unknown'}
 
@@ -2609,19 +2659,27 @@ class Instance(BaseModel):
 
             Recent logs:
             {logs_result.stdout if logs_result.exit_code == 0 else 'Could not get logs'}"""
-                
+
                 console.print(f"[bold red]{error_msg}[/bold red]")
-                raise RuntimeError(f"Container '{container_name}' failed to start properly")
+                raise RuntimeError(
+                    f"Container '{container_name}' failed to start properly"
+                )
 
             # Test shell availability
-            shell_test_result = ssh.run(["docker", "exec", container_name, "echo", "test"])
+            shell_test_result = ssh.run(
+                ["docker", "exec", container_name, "echo", "test"]
+            )
             if shell_test_result.exit_code != 0:
-                console.print("[yellow]Warning: Container is running but not responsive to commands[/yellow]")
-                
+                console.print(
+                    "[yellow]Warning: Container is running but not responsive to commands[/yellow]"
+                )
+
                 # Get more debugging info
                 logs_result = ssh.run(["docker", "logs", "--tail=10", container_name])
-                console.print(f"[yellow]Recent container logs:\n{logs_result.stdout}[/yellow]")
-                
+                console.print(
+                    f"[yellow]Recent container logs:\n{logs_result.stdout}[/yellow]"
+                )
+
             else:
                 console.print("[green]Container is running and responsive[/green]")
 
@@ -2782,7 +2840,9 @@ fi"""
                 )
             else:
                 # Add ForceCommand to the end of sshd_config
-                ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
+                ssh.run(
+                    'echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config'
+                )
 
             # Restart SSH service
             console.print("[blue]Restarting SSH service...[/blue]")
@@ -2813,7 +2873,6 @@ fi"""
         dockerfile: typing.Optional[str] = None,
         build_context: typing.Optional[str] = None,
         container_name: str = "container",
-        
         container_args: typing.Optional[typing.List[str]] = None,
         ports: typing.Optional[typing.Dict[int, int]] = None,
         volumes: typing.Optional[typing.List[str]] = None,
