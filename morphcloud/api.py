@@ -2979,6 +2979,68 @@ fi"""
         response.raise_for_status()
         await self._refresh_async()
 
+    def ssh_key(self, password_only: bool = False) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+        """
+        Retrieve the SSH key details for this instance.
+        
+        This key is ephemeral and is used for establishing the SSH connection.
+        
+        Args:
+            password_only: If True, return only the password value as a string.
+                         If False, return the full key data as a dictionary.
+        
+        Returns:
+            Either the password string (if password_only=True) or the full key data dict.
+        
+        Raises:
+            ApiError: If the instance is not found or other API errors occur.
+            ValueError: If password_only=True but no password field is found in response.
+        """
+        if not self._api:
+            raise ValueError("Instance object is not associated with an API client")
+        
+        response = self._api._client._http_client.get(f"/instance/{self.id}/ssh/key")
+        key_data = response.json()
+        
+        if password_only:
+            password = key_data.get("password")
+            if password is None:
+                raise ValueError("'password' field not found in the API response")
+            return password
+        else:
+            return key_data
+
+    async def assh_key(self, password_only: bool = False) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+        """
+        Asynchronously retrieve the SSH key details for this instance.
+        
+        This key is ephemeral and is used for establishing the SSH connection.
+        
+        Args:
+            password_only: If True, return only the password value as a string.
+                         If False, return the full key data as a dictionary.
+        
+        Returns:
+            Either the password string (if password_only=True) or the full key data dict.
+        
+        Raises:
+            ApiError: If the instance is not found or other API errors occur.
+            ValueError: If password_only=True but no password field is found in response.
+        """
+        if not self._api:
+            raise ValueError("Instance object is not associated with an API client")
+        
+        response = await self._api._client._async_http_client.get(f"/instance/{self.id}/ssh/key")
+        key_data = response.json()
+        
+        if password_only:
+            password = key_data.get("password")
+            if password is None:
+                raise ValueError("'password' field not found in the API response")
+            return password
+        else:
+            return key_data
+
 
 # Helper functions
 import click
