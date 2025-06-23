@@ -2421,10 +2421,10 @@ class Instance(BaseModel):
         # Validate parameters
         if not image and not dockerfile:
             raise ValueError("Either 'image' or 'dockerfile' must be provided")
-        
+
         # Initialize log buffer
         log_output = ["Debugging logs:"]
-        
+
         try:
             # Make sure the instance is ready
             self.wait_until_ready()
@@ -2435,7 +2435,7 @@ class Instance(BaseModel):
                 required_packages = ["docker.io", "git", "curl"]
                 missing_packages = []
                 log_output.append("Checking for required packages...")
-                
+
                 for pkg in required_packages:
                     # Use dpkg -s which exits non-zero if package is not installed or unknown
                     result = ssh.run(["dpkg", "-s", pkg])
@@ -2453,7 +2453,9 @@ class Instance(BaseModel):
                         raise RuntimeError("\n".join(log_output))
 
                     # Install all missing packages at once
-                    log_output.append(f"Installing missing packages: {', '.join(missing_packages)}...")
+                    log_output.append(
+                        f"Installing missing packages: {', '.join(missing_packages)}..."
+                    )
                     install_cmd = ["apt-get", "install", "-y"] + missing_packages
                     install_result = ssh.run(install_cmd)
                     if install_result.exit_code != 0:
@@ -2468,7 +2470,9 @@ class Instance(BaseModel):
                 # Verify docker service is running
                 result = ssh.run(["systemctl", "is-active", "docker"])
                 if result.exit_code != 0:
-                    log_output.append("Docker service not active, attempting to start...")
+                    log_output.append(
+                        "Docker service not active, attempting to start..."
+                    )
                     # Attempt to start services
                     ssh.run(["systemctl", "start", "containerd.service"])
                     ssh.run(["systemctl", "start", "docker.service"])
@@ -2479,7 +2483,9 @@ class Instance(BaseModel):
                     if result.exit_code != 0:
                         error_msg = f"Docker service failed to start or is not installed correctly. Status check stderr: {result.stderr}"
                         log_output.append(error_msg)
-                        log_output.append("Hint: A system reboot might be required after Docker installation.")
+                        log_output.append(
+                            "Hint: A system reboot might be required after Docker installation."
+                        )
                         raise RuntimeError("\n".join(log_output))
                     else:
                         log_output.append("Docker service started successfully.")
@@ -2488,60 +2494,82 @@ class Instance(BaseModel):
 
                 # Handle image preparation (either pull existing or build from Dockerfile)
                 final_image_name = image
-                
+
                 if dockerfile:
                     # Build image from Dockerfile contents
                     log_output.append("Building Docker image from Dockerfile...")
-                    
+
                     # Generate a unique image name based on Dockerfile contents if not provided
                     if not image:
-                        dockerfile_hash = hashlib.sha256(dockerfile.encode()).hexdigest()[:12]
+                        dockerfile_hash = hashlib.sha256(
+                            dockerfile.encode()
+                        ).hexdigest()[:12]
                         final_image_name = f"morphcloud-custom:{dockerfile_hash}"
                     else:
                         final_image_name = image
-                    
+
                     # Check if image already exists to avoid rebuilding
                     check_result = ssh.run(["docker", "images", "-q", final_image_name])
                     if check_result.exit_code == 0 and check_result.stdout.strip():
-                        log_output.append(f"Image '{final_image_name}' already exists, skipping build.")
+                        log_output.append(
+                            f"Image '{final_image_name}' already exists, skipping build."
+                        )
                     else:
                         # Set up build context directory
                         build_dir = build_context or "/tmp/docker-build"
                         ssh.run(["mkdir", "-p", build_dir])
-                        
+
                         try:
                             # Write Dockerfile to remote instance
                             dockerfile_path = f"{build_dir}/Dockerfile"
                             ssh.write_file(dockerfile_path, dockerfile)
-                            log_output.append(f"Dockerfile written to {dockerfile_path}")
-                            
+                            log_output.append(
+                                f"Dockerfile written to {dockerfile_path}"
+                            )
+
                             # Build the Docker image
                             log_output.append(f"Building image '{final_image_name}'...")
-                            build_cmd = ["docker", "build", "-t", final_image_name, build_dir]
+                            build_cmd = [
+                                "docker",
+                                "build",
+                                "-t",
+                                final_image_name,
+                                build_dir,
+                            ]
                             build_result = ssh.run(build_cmd)
-                            
+
                             if build_result.exit_code != 0:
                                 # Only include the last 50 lines of stdout for brevity
                                 stdout_lines = build_result.stdout.splitlines()
-                                last_stdout = "\n".join(stdout_lines[-50:]) if len(stdout_lines) > 50 else build_result.stdout
-                                error_msg = f"Failed to build Docker image: {last_stdout}"
+                                last_stdout = (
+                                    "\n".join(stdout_lines[-50:])
+                                    if len(stdout_lines) > 50
+                                    else build_result.stdout
+                                )
+                                error_msg = (
+                                    f"Failed to build Docker image: {last_stdout}"
+                                )
                                 log_output.append(error_msg)
                                 raise RuntimeError("\n".join(log_output))
-                            
-                            log_output.append(f"Successfully built image '{final_image_name}'")
-                            
+
+                            log_output.append(
+                                f"Successfully built image '{final_image_name}'"
+                            )
+
                         finally:
                             # Clean up build directory
                             ssh.run(["rm", "-rf", build_dir])
                             log_output.append(f"Cleaned up build directory {build_dir}")
-                
+
                 elif image:
                     # Pull the specified image if it doesn't exist locally
                     log_output.append(f"Checking if image '{image}' exists locally...")
                     check_result = ssh.run(["docker", "images", "-q", image])
-                    
+
                     if not check_result.stdout.strip():
-                        log_output.append(f"Image '{image}' not found locally, pulling...")
+                        log_output.append(
+                            f"Image '{image}' not found locally, pulling..."
+                        )
                         pull_result = ssh.run(["docker", "pull", image])
                         if pull_result.exit_code != 0:
                             error_msg = f"Failed to pull Docker image '{image}': {pull_result.stderr}"
@@ -2587,10 +2615,14 @@ class Instance(BaseModel):
 
                 # Add the final image name and command
                 docker_cmd.append(final_image_name)
-                docker_cmd.extend(["tail", "-f", "/dev/null"]) # Keep the container alive
+                docker_cmd.extend(
+                    ["tail", "-f", "/dev/null"]
+                )  # Keep the container alive
 
                 # Run the docker container
-                log_output.append(f"Starting container '{container_name}' from image '{final_image_name}'...")
+                log_output.append(
+                    f"Starting container '{container_name}' from image '{final_image_name}'..."
+                )
                 log_output.append(f"Docker command: {docker_cmd}")
                 result = ssh.run(docker_cmd)
                 log_output.append(f"Docker run command executed: {result.stdout}")
@@ -2602,92 +2634,171 @@ class Instance(BaseModel):
                 log_output.append("Testing container status and connectivity...")
 
                 # Check if container is running
-                status_result = ssh.run(["docker", "inspect", container_name, "--format", "{{.State.Status}}"])
-                if status_result.exit_code != 0 or status_result.stdout.strip() != "running":
-                    container_status = status_result.stdout.strip() if status_result.exit_code == 0 else 'unknown'
-                    
+                status_result = ssh.run(
+                    [
+                        "docker",
+                        "inspect",
+                        container_name,
+                        "--format",
+                        "{{.State.Status}}",
+                    ]
+                )
+                if (
+                    status_result.exit_code != 0
+                    or status_result.stdout.strip() != "running"
+                ):
+                    container_status = (
+                        status_result.stdout.strip()
+                        if status_result.exit_code == 0
+                        else "unknown"
+                    )
+
                     # Build detailed error message like the bash version
                     error_lines = []
-                    error_lines.append(f"ERROR: Container '{container_name}' is not running.")
+                    error_lines.append(
+                        f"ERROR: Container '{container_name}' is not running."
+                    )
                     error_lines.append(f"Current status: {container_status}")
                     error_lines.append("")
-                    
+
                     # Handle specific container states with detailed info
                     if container_status == "exited":
-                        exit_code_result = ssh.run(["docker", "inspect", container_name, "--format", "{{.State.ExitCode}}"])
-                        exit_code = exit_code_result.stdout.strip() if exit_code_result.exit_code == 0 else 'unknown'
+                        exit_code_result = ssh.run(
+                            [
+                                "docker",
+                                "inspect",
+                                container_name,
+                                "--format",
+                                "{{.State.ExitCode}}",
+                            ]
+                        )
+                        exit_code = (
+                            exit_code_result.stdout.strip()
+                            if exit_code_result.exit_code == 0
+                            else "unknown"
+                        )
                         error_lines.append(f"Container exited with code: {exit_code}")
                         error_lines.append("")
                         error_lines.append("Recent container logs:")
-                        logs_result = ssh.run(["docker", "logs", "--tail=20", container_name])
+                        logs_result = ssh.run(
+                            ["docker", "logs", "--tail=20", container_name]
+                        )
                         if logs_result.exit_code == 0 and logs_result.stdout.strip():
                             for line in logs_result.stdout.splitlines():
                                 error_lines.append(f"  {line}")
                         else:
                             error_lines.append("  Could not get logs")
-                            
+
                     elif container_status == "paused":
-                        error_lines.append(f"Container is paused. Try: docker unpause {container_name}")
-                        
+                        error_lines.append(
+                            f"Container is paused. Try: docker unpause {container_name}"
+                        )
+
                     elif container_status == "restarting":
-                        restart_count_result = ssh.run(["docker", "inspect", container_name, "--format", "{{.RestartCount}}"])
-                        restart_count = restart_count_result.stdout.strip() if restart_count_result.exit_code == 0 else 'unknown'
-                        error_lines.append(f"Container is stuck restarting (restart count: {restart_count})")
+                        restart_count_result = ssh.run(
+                            [
+                                "docker",
+                                "inspect",
+                                container_name,
+                                "--format",
+                                "{{.RestartCount}}",
+                            ]
+                        )
+                        restart_count = (
+                            restart_count_result.stdout.strip()
+                            if restart_count_result.exit_code == 0
+                            else "unknown"
+                        )
+                        error_lines.append(
+                            f"Container is stuck restarting (restart count: {restart_count})"
+                        )
                         error_lines.append("")
                         error_lines.append("Recent container logs:")
-                        logs_result = ssh.run(["docker", "logs", "--tail=20", container_name])
+                        logs_result = ssh.run(
+                            ["docker", "logs", "--tail=20", container_name]
+                        )
                         if logs_result.exit_code == 0 and logs_result.stdout.strip():
                             for line in logs_result.stdout.splitlines():
                                 error_lines.append(f"  {line}")
                         else:
                             error_lines.append("  Could not get logs")
-                            
+
                     elif container_status == "dead":
-                        error_lines.append("Container is in a dead state. May need to remove and recreate.")
+                        error_lines.append(
+                            "Container is in a dead state. May need to remove and recreate."
+                        )
                         error_lines.append("")
                         error_lines.append("Recent container logs:")
-                        logs_result = ssh.run(["docker", "logs", "--tail=20", container_name])
+                        logs_result = ssh.run(
+                            ["docker", "logs", "--tail=20", container_name]
+                        )
                         if logs_result.exit_code == 0 and logs_result.stdout.strip():
                             for line in logs_result.stdout.splitlines():
                                 error_lines.append(f"  {line}")
                         else:
                             error_lines.append("  Could not get logs")
-                            
+
                     elif container_status not in ["running", "unknown"]:
-                        error_lines.append(f"Unknown container status: {container_status}")
+                        error_lines.append(
+                            f"Unknown container status: {container_status}"
+                        )
                         error_lines.append("")
                         error_lines.append("Container details:")
-                        state_result = ssh.run(["docker", "inspect", container_name, "--format", "{{json .State}}"])
+                        state_result = ssh.run(
+                            [
+                                "docker",
+                                "inspect",
+                                container_name,
+                                "--format",
+                                "{{json .State}}",
+                            ]
+                        )
                         if state_result.exit_code == 0:
                             for line in state_result.stdout.splitlines():
                                 error_lines.append(f"  {line}")
                         else:
                             error_lines.append("  Could not get container details")
-                    
+
                     # Always add container overview at the end
                     error_lines.append("")
                     error_lines.append("Container overview:")
-                    ps_result = ssh.run(["docker", "ps", "-a", "--filter", f"name={container_name}", "--format", "table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Command}}"])
+                    ps_result = ssh.run(
+                        [
+                            "docker",
+                            "ps",
+                            "-a",
+                            "--filter",
+                            f"name={container_name}",
+                            "--format",
+                            "table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Command}}",
+                        ]
+                    )
                     if ps_result.exit_code == 0:
                         for line in ps_result.stdout.splitlines():
                             error_lines.append(line)
                     else:
                         error_lines.pop()
                         error_lines.pop()
-                    
+
                     # Add all error details to log_output
                     log_output.extend(error_lines)
                     raise RuntimeError("\n".join(log_output))
 
                 # Test shell availability (keep this as a separate health check)
-                shell_test_result = ssh.run(["docker", "exec", container_name, "echo", "test"])
+                shell_test_result = ssh.run(
+                    ["docker", "exec", container_name, "echo", "test"]
+                )
                 if shell_test_result.exit_code != 0:
-                    log_output.append("Warning: Container is running but not responsive to commands")
-                    
+                    log_output.append(
+                        "Warning: Container is running but not responsive to commands"
+                    )
+
                     # Get more debugging info
-                    logs_result = ssh.run(["docker", "logs", "--tail=10", container_name])
+                    logs_result = ssh.run(
+                        ["docker", "logs", "--tail=10", container_name]
+                    )
                     log_output.append(f"Recent container logs:\n{logs_result.stdout}")
-                    
+
                 else:
                     log_output.append("Container is running and responsive")
 
@@ -2840,7 +2951,9 @@ fi"""
                     )
                 else:
                     # Add ForceCommand to the end of sshd_config
-                    ssh.run('echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config')
+                    ssh.run(
+                        'echo "ForceCommand /root/container.sh" >> /etc/ssh/sshd_config'
+                    )
 
                 # Restart SSH service
                 log_output.append("Restarting SSH service...")
@@ -2850,14 +2963,22 @@ fi"""
                 log_output.append("Testing ssh redirection...")
                 test_result = ssh.run('echo "Container setup test"')
                 if test_result.returncode != 0:
-                    log_output.append("Warning: Container setup test returned non-zero exit code. Check container configuration.")
+                    log_output.append(
+                        "Warning: Container setup test returned non-zero exit code. Check container configuration."
+                    )
 
             # If we reach here, everything succeeded
-            log_output.append(f"✅ Instance now redirects all SSH sessions to the '{container_name}' container")
+            log_output.append(
+                f"✅ Instance now redirects all SSH sessions to the '{container_name}' container"
+            )
             if dockerfile:
-                log_output.append(f"Built custom image '{final_image_name}' from provided Dockerfile")
-            log_output.append("Note: This change cannot be easily reversed. Consider creating a snapshot before using this method.")
-            
+                log_output.append(
+                    f"Built custom image '{final_image_name}' from provided Dockerfile"
+                )
+            log_output.append(
+                "Note: This change cannot be easily reversed. Consider creating a snapshot before using this method."
+            )
+
         except Exception as e:
             raise
 
@@ -2979,29 +3100,31 @@ fi"""
         response.raise_for_status()
         await self._refresh_async()
 
-    def ssh_key(self, password_only: bool = False) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+    def ssh_key(
+        self, password_only: bool = False
+    ) -> typing.Union[str, typing.Dict[str, typing.Any]]:
         """
         Retrieve the SSH key details for this instance.
-        
+
         This key is ephemeral and is used for establishing the SSH connection.
-        
+
         Args:
             password_only: If True, return only the password value as a string.
                          If False, return the full key data as a dictionary.
-        
+
         Returns:
             Either the password string (if password_only=True) or the full key data dict.
-        
+
         Raises:
             ApiError: If the instance is not found or other API errors occur.
             ValueError: If password_only=True but no password field is found in response.
         """
         if not self._api:
             raise ValueError("Instance object is not associated with an API client")
-        
+
         response = self._api._client._http_client.get(f"/instance/{self.id}/ssh/key")
         key_data = response.json()
-        
+
         if password_only:
             password = key_data.get("password")
             if password is None:
@@ -3010,29 +3133,33 @@ fi"""
         else:
             return key_data
 
-    async def assh_key(self, password_only: bool = False) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+    async def assh_key(
+        self, password_only: bool = False
+    ) -> typing.Union[str, typing.Dict[str, typing.Any]]:
         """
         Asynchronously retrieve the SSH key details for this instance.
-        
+
         This key is ephemeral and is used for establishing the SSH connection.
-        
+
         Args:
             password_only: If True, return only the password value as a string.
                          If False, return the full key data as a dictionary.
-        
+
         Returns:
             Either the password string (if password_only=True) or the full key data dict.
-        
+
         Raises:
             ApiError: If the instance is not found or other API errors occur.
             ValueError: If password_only=True but no password field is found in response.
         """
         if not self._api:
             raise ValueError("Instance object is not associated with an API client")
-        
-        response = await self._api._client._async_http_client.get(f"/instance/{self.id}/ssh/key")
+
+        response = await self._api._client._async_http_client.get(
+            f"/instance/{self.id}/ssh/key"
+        )
         key_data = response.json()
-        
+
         if password_only:
             password = key_data.get("password")
             if password is None:
