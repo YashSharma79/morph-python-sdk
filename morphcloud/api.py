@@ -115,14 +115,17 @@ class WakeOn(BaseModel):
         False, description="Whether the instance should wake on an HTTP request."
     )
 
+
 class InstanceSshKey(BaseModel):
     """SSH key details for an instance."""
+
     object: typing.Literal["instance_ssh_key"] = Field(
         "instance_ssh_key", description="Object type, always 'instance_ssh_key'"
     )
     private_key: str = Field(..., description="SSH private key")
     public_key: str = Field(..., description="SSH public key")
     password: str = Field(..., description="SSH password")
+
 
 class MorphCloudClient:
     def __init__(
@@ -3125,7 +3128,7 @@ fi"""
 
         response = self._api._client._http_client.get(f"/instance/{self.id}/ssh/key")
         key_data = response.json()
-        
+
         return InstanceSshKey.model_validate(key_data)
 
     async def assh_key(self) -> InstanceSshKey:
@@ -3147,7 +3150,7 @@ fi"""
             f"/instance/{self.id}/ssh/key"
         )
         key_data = response.json()
-        
+
         return InstanceSshKey.model_validate(key_data)
 
 
