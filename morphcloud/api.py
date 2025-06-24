@@ -115,6 +115,14 @@ class WakeOn(BaseModel):
         False, description="Whether the instance should wake on an HTTP request."
     )
 
+class InstanceSshKey(BaseModel):
+    """SSH key details for an instance."""
+    object: typing.Literal["instance_ssh_key"] = Field(
+        "instance_ssh_key", description="Object type, always 'instance_ssh_key'"
+    )
+    private_key: str = Field(..., description="SSH private key")
+    public_key: str = Field(..., description="SSH public key")
+    password: str = Field(..., description="SSH password")
 
 class MorphCloudClient:
     def __init__(
@@ -3100,57 +3108,37 @@ fi"""
         response.raise_for_status()
         await self._refresh_async()
 
-    def ssh_key(
-        self, password_only: bool = False
-    ) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+    def ssh_key(self) -> InstanceSshKey:
         """
         Retrieve the SSH key details for this instance.
 
         This key is ephemeral and is used for establishing the SSH connection.
 
-        Args:
-            password_only: If True, return only the password value as a string.
-                         If False, return the full key data as a dictionary.
-
         Returns:
-            Either the password string (if password_only=True) or the full key data dict.
+            InstanceSshKey: The SSH key details including private key, public key, and password.
 
         Raises:
             ApiError: If the instance is not found or other API errors occur.
-            ValueError: If password_only=True but no password field is found in response.
         """
         if not self._api:
             raise ValueError("Instance object is not associated with an API client")
 
         response = self._api._client._http_client.get(f"/instance/{self.id}/ssh/key")
         key_data = response.json()
+        
+        return InstanceSshKey.model_validate(key_data)
 
-        if password_only:
-            password = key_data.get("password")
-            if password is None:
-                raise ValueError("'password' field not found in the API response")
-            return password
-        else:
-            return key_data
-
-    async def assh_key(
-        self, password_only: bool = False
-    ) -> typing.Union[str, typing.Dict[str, typing.Any]]:
+    async def assh_key(self) -> InstanceSshKey:
         """
         Asynchronously retrieve the SSH key details for this instance.
 
         This key is ephemeral and is used for establishing the SSH connection.
 
-        Args:
-            password_only: If True, return only the password value as a string.
-                         If False, return the full key data as a dictionary.
-
         Returns:
-            Either the password string (if password_only=True) or the full key data dict.
+            InstanceSshKey: The SSH key details including private key, public key, and password.
 
         Raises:
             ApiError: If the instance is not found or other API errors occur.
-            ValueError: If password_only=True but no password field is found in response.
         """
         if not self._api:
             raise ValueError("Instance object is not associated with an API client")
@@ -3159,14 +3147,8 @@ fi"""
             f"/instance/{self.id}/ssh/key"
         )
         key_data = response.json()
-
-        if password_only:
-            password = key_data.get("password")
-            if password is None:
-                raise ValueError("'password' field not found in the API response")
-            return password
-        else:
-            return key_data
+        
+        return InstanceSshKey.model_validate(key_data)
 
 
 # Helper functions
