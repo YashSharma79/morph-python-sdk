@@ -302,10 +302,8 @@ class Snapshot:
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
-    @contextmanager
     def start(self):
-        with client.instances.start(snapshot_id=self.snapshot.id, metadata=dict(root=self.snapshot.id)) as inst:
-            yield inst
+        return client.instances.start(snapshot_id=self.snapshot.id, metadata=dict(root=self.snapshot.id))
 
     @contextmanager
     def boot(
