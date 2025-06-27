@@ -280,9 +280,16 @@ class Snapshot:
 
     @classmethod
     def create(cls, name: str, image_id: str = "morphvm-minimal",
-               vcpus: int = 1, memory: int = 4096, disk_size: int = 8192):
+               vcpus: int = 1, memory: int = 4096, disk_size: int = 8192,
+               invalidate: InvalidateFn | bool = False) -> "Snapshot":
         renderer.add_system_panel("🖼  Snapshot.create()",
                                   f"image_id={image_id}, vcpus={vcpus}, memory={memory}MB, disk={disk_size}MB")
+        if invalidate:
+            invalidate_fn = invalidate if isinstance(invalidate, typing.Callable) else lambda _: invalidate
+            snaps = client.snapshots.list(digest=name)
+            for s in snaps:
+                if invalidate_fn(Snapshot(s)):
+                    s.delete()
         snap = client.snapshots.create(image_id=image_id, vcpus=vcpus,
                                        memory=memory, disk_size=disk_size,
                                        digest=name, metadata={"name": name})
