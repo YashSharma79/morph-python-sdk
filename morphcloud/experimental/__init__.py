@@ -307,6 +307,17 @@ class Snapshot:
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
+    @classmethod
+    def from_tag(cls, tag: str) -> "Snapshot":
+        renderer.add_system_panel("🏷️  Snapshot.from_tag()",
+                                  f"tag={tag}")
+        snapshots = client.snapshots.list(metadata={"tag": tag})
+        if not snapshots:
+            raise ValueError(f"No snapshot found with tag: {tag}")
+        if len(snapshots) > 1:
+            raise ValueError(f"Multiple snapshots found with tag '{tag}'. Found {len(snapshots)} snapshots.")
+        return cls(snapshots[0])
+
     def start(
         self,
         metadata: typing.Optional[typing.Dict[str, str]] = None,
