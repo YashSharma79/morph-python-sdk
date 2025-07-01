@@ -307,8 +307,23 @@ class Snapshot:
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
-    def start(self):
-        return client.instances.start(snapshot_id=self.snapshot.id, metadata=dict(root=self.snapshot.id))
+    def start(
+        self,
+        metadata: typing.Optional[typing.Dict[str, str]] = None,
+        ttl_seconds: typing.Optional[int] = None,
+        ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None,
+    ):
+        # Merge default metadata with any provided metadata
+        default_metadata = dict(root=self.snapshot.id)
+        if metadata:
+            default_metadata.update(metadata)
+        
+        return client.instances.start(
+            snapshot_id=self.snapshot.id, 
+            metadata=default_metadata,
+            ttl_seconds=ttl_seconds,
+            ttl_action=ttl_action
+        )
 
     @contextmanager
     def boot(
