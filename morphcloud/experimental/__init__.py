@@ -315,7 +315,9 @@ class Snapshot:
         if not snapshots:
             raise ValueError(f"No snapshot found with tag: {tag}")
         if len(snapshots) > 1:
-            raise ValueError(f"Multiple snapshots found with tag '{tag}'. Found {len(snapshots)} snapshots.")
+            # Return the most recent snapshot (assuming list is ordered by creation time)
+            # The last item in the list is the most recently created
+            return cls(snapshots[-1])
         return cls(snapshots[0])
 
     def start(
