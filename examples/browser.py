@@ -183,7 +183,7 @@ class BrowserSession:
         return snapshot
     
     @classmethod
-    def create(cls, name=None, vcpus=2, memory=8192, disk_size=20480, verbose=False):
+    def create(cls, name=None, vcpus=1, memory=4 * 1024, disk_size=16 * 1024, verbose=False):
         """
         Create a new browser session with headless Chrome.
         
