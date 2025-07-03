@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import stat
 import time
 import typing
 import threading
 
+from pathlib import Path
 from collections import deque
 from contextlib import contextmanager
 from typing import Iterator, Tuple, Union, Literal
@@ -23,12 +25,13 @@ from morphcloud.api import MorphCloudClient, Instance, Snapshot as _Snapshot
 
 
 PALETTE = {
-    "bg":       "#2D2D2D",
-    "success":  "#CEFF1A",
-    "error":    "#F23F42",
-    "accent":   "#F2777A",
-    "running":  "yellow",
+    "bg": "#2D2D2D",
+    "success": "#CEFF1A",
+    "error": "#F23F42",
+    "accent": "#F2777A",
+    "running": "yellow",
 }
+
 
 def _colour(kind: str) -> str:
     return PALETTE.get(kind, "white")
@@ -41,10 +44,10 @@ class Renderer:
     def __init__(self):
         theme = Theme(
             {
-                "success":  PALETTE["success"],
-                "error":    PALETTE["error"],
-                "accent":   PALETTE["accent"],
-                "running":  PALETTE["running"],
+                "success": PALETTE["success"],
+                "error": PALETTE["error"],
+                "accent": PALETTE["accent"],
+                "running": PALETTE["running"],
             }
         )
         self._console = Console(
@@ -55,7 +58,7 @@ class Renderer:
         )
         self._console.clear()
 
-        self._lock   = threading.Lock()
+        self._lock = threading.Lock()
         self._panels: list[Panel] = []
         self._live = Live(
             Group(),
@@ -132,7 +135,7 @@ renderer = Renderer()
 
 
 STREAM_MAX_LINES = 24
-ELLIPSIS         = "⋯ [output truncated] ⋯\n"
+ELLIPSIS = "⋯ [output truncated] ⋯\n"
 
 # each deque element: (line_text, style_or_None)
 Line = tuple[str, str | None]
@@ -155,8 +158,8 @@ def _append_stream_chunk(
         buf.popleft()
 
     # 3. rebuild the Rich Text object
-    text_obj.plain = ""          # ‹NEW› wipe text
-    text_obj.spans.clear()       # ‹NEW› wipe previous styling
+    text_obj.plain = ""  # ‹NEW› wipe text
+    text_obj.spans.clear()  # ‹NEW› wipe previous styling
 
     if len(buf) == max_lines:
         text_obj.append(ELLIPSIS, style="dim")
@@ -191,9 +194,9 @@ class VerificationPanel:
         table.add_column()
         for fn, status in self._statuses.items():
             colour = (
-                _colour("success") if status.startswith("✅") else
-                _colour("error")   if status.startswith("❌") else
-                _colour("running")
+                _colour("success")
+                if status.startswith("✅")
+                else _colour("error") if status.startswith("❌") else _colour("running")
             )
             table.add_row(fn, f"[{colour}]{status}[/{colour}]")
         return table
@@ -243,7 +246,11 @@ def ssh_stream(
             data = chan.recv_stderr(chunk_size)
             if data:
                 yield ("stdin", data.decode(encoding, errors="replace"))
-        if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
+        if (
+            chan.exit_status_ready()
+            and not chan.recv_ready()
+            and not chan.recv_stderr_ready()
+        ):
             break
         time.sleep(poll)
 
@@ -274,6 +281,7 @@ client = MorphCloudClient()
 
 InvalidateFn = typing.Callable[["Snapshot"], bool]
 
+
 class Snapshot:
     def __init__(self, snapshot: _Snapshot):
         self.snapshot = snapshot
@@ -284,41 +292,56 @@ class Snapshot:
         return self.snapshot.id
 
     @classmethod
-    def create(cls, name: str, image_id: str = "morphvm-minimal",
-               vcpus: int = 1, memory: int = 4096, disk_size: int = 8192,
-               invalidate: InvalidateFn | bool = False) -> "Snapshot":
-        renderer.add_system_panel("🖼  Snapshot.create()",
-                                  f"image_id={image_id}, vcpus={vcpus}, memory={memory}MB, disk={disk_size}MB")
+    def create(
+        cls,
+        name: str,
+        image_id: str = "morphvm-minimal",
+        vcpus: int = 1,
+        memory: int = 4096,
+        disk_size: int = 8192,
+        invalidate: InvalidateFn | bool = False,
+    ) -> "Snapshot":
+        renderer.add_system_panel(
+            "🖼  Snapshot.create()",
+            f"image_id={image_id}, vcpus={vcpus}, memory={memory}MB, disk={disk_size}MB",
+        )
         if invalidate:
-            invalidate_fn = invalidate if isinstance(invalidate, typing.Callable) else lambda _: invalidate
+            invalidate_fn = (
+                invalidate
+                if isinstance(invalidate, typing.Callable)
+                else lambda _: invalidate
+            )
             snaps = client.snapshots.list(digest=name)
             for s in snaps:
                 if invalidate_fn(Snapshot(s)):
                     s.delete()
-        snap = client.snapshots.create(image_id=image_id, vcpus=vcpus,
-                                       memory=memory, disk_size=disk_size,
-                                       digest=name, metadata={"name": name})
+        snap = client.snapshots.create(
+            image_id=image_id,
+            vcpus=vcpus,
+            memory=memory,
+            disk_size=disk_size,
+            digest=name,
+            metadata={"name": name},
+        )
         return cls(snap)
 
     @classmethod
     def from_snapshot_id(cls, snapshot_id: str) -> "Snapshot":
-        renderer.add_system_panel("🔍 Snapshot.from_snapshot_id()",
-                                  f"snapshot_id={snapshot_id}")
+        renderer.add_system_panel(
+            "🔍 Snapshot.from_snapshot_id()", f"snapshot_id={snapshot_id}"
+        )
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
     @classmethod
-    def from_tag(cls, tag: str) -> "Snapshot":
-        renderer.add_system_panel("🏷️  Snapshot.from_tag()",
-                                  f"tag={tag}")
+    def from_tag(cls, tag: str) -> typing.Optional["Snapshot"]:
+        renderer.add_system_panel("🏷️  Snapshot.from_tag()", f"tag={tag}")
         snapshots = client.snapshots.list(metadata={"tag": tag})
         if not snapshots:
-            raise ValueError(f"No snapshot found with tag: {tag}")
-        if len(snapshots) > 1:
-            # Return the most recent snapshot (assuming list is ordered by creation time)
-            # The last item in the list is the most recently created
-            return cls(snapshots[-1])
-        return cls(snapshots[0])
+            return None
+        # Return the most recent snapshot (assuming list is ordered by creation time)
+        # The last item in the list is the most recently created
+        return cls(snapshots[-1])
 
     def start(
         self,
@@ -330,12 +353,12 @@ class Snapshot:
         default_metadata = dict(root=self.snapshot.id)
         if metadata:
             default_metadata.update(metadata)
-        
+
         return client.instances.start(
-            snapshot_id=self.snapshot.id, 
+            snapshot_id=self.snapshot.id,
             metadata=default_metadata,
             ttl_seconds=ttl_seconds,
-            ttl_action=ttl_action
+            ttl_action=ttl_action,
         )
 
     @contextmanager
@@ -347,7 +370,7 @@ class Snapshot:
     ):
         renderer.add_system_panel(
             "🔄 Snapshot.boot()",
-            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB"
+            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB",
         )
         with client.instances.boot(
             snapshot_id=self.snapshot.id,
@@ -357,7 +380,6 @@ class Snapshot:
         ) as inst:
             yield inst
 
-
     def key_to_digest(self, key: str) -> str:
         return (self.snapshot.digest or "") + self.snapshot.id + key
 
@@ -366,13 +388,17 @@ class Snapshot:
         func,
         key: str | None = None,
         start_fn: typing.Union[
-            typing.ContextManager[Instance], 
-            typing.Callable[[], typing.ContextManager[Instance]], 
-            None
+            typing.ContextManager[Instance],
+            typing.Callable[[], typing.ContextManager[Instance]],
+            None,
         ] = None,
         invalidate: InvalidateFn | bool = False,
     ):
-        invalidate_fn = invalidate if isinstance(invalidate, typing.Callable) else lambda _: invalidate
+        invalidate_fn = (
+            invalidate
+            if isinstance(invalidate, typing.Callable)
+            else lambda _: invalidate
+        )
         if key:
             digest = self.key_to_digest(key)
             snaps = client.snapshots.list(digest=digest)
@@ -397,7 +423,9 @@ class Snapshot:
         with context_manager as inst:
             res = func(inst)
             inst = inst if res is None else res
-            return Snapshot(inst.snapshot(digest=self.key_to_digest(key) if key else None))
+            return Snapshot(
+                inst.snapshot(digest=self.key_to_digest(key) if key else None)
+            )
 
     # -------------- run with stream between CMD/RET -------------- #
     def run(self, command: str, invalidate: InvalidateFn | bool = False):
@@ -414,23 +442,185 @@ class Snapshot:
             footer_tbl.add_column()
 
             out_text = Text()
-            grp = Group(Align.left(header_tbl), Align.left(out_text), Align.left(footer_tbl))
-            panel = Panel(grp, title="🖥  Snapshot.run()", border_style=_colour("accent"), style=f"on {PALETTE['bg']}")
+            grp = Group(
+                Align.left(header_tbl), Align.left(out_text), Align.left(footer_tbl)
+            )
+            panel = Panel(
+                grp,
+                title="🖥  Snapshot.run()",
+                border_style=_colour("accent"),
+                style=f"on {PALETTE['bg']}",
+            )
             renderer.add_panel(panel)
 
             buf = deque()
 
-            def _out(c): _append_stream_chunk(buf, c, out_text); renderer.refresh()
-            def _err(c): _append_stream_chunk(buf, c, out_text, style=_colour("error")); renderer.refresh()
+            def _out(c):
+                _append_stream_chunk(buf, c, out_text)
+                renderer.refresh()
+
+            def _err(c):
+                _append_stream_chunk(buf, c, out_text, style=_colour("error"))
+                renderer.refresh()
 
             exit_code = instance_exec(instance, command, _out, _err)
             footer_tbl.add_row("RET", str(exit_code))
             renderer.refresh()
 
             if exit_code != 0:
-                raise Exception(f"Command execution failed: {command} exit={exit_code} stdout={out_text.plain} stderr={out_text.plain}")
+                raise Exception(
+                    f"Command execution failed: {command} exit={exit_code} stdout={out_text.plain} stderr={out_text.plain}"
+                )
 
         return self.apply(execute, key=command, invalidate=invalidate)
+
+    def copy_(self, src: str, dest: str, invalidate: InvalidateFn | bool = False):
+        """
+        Copy files/directories to the instance via SSH, similar to Docker COPY.
+
+        Args:
+            src: Source path on local machine (file or directory)
+            dest: Destination path on remote instance
+            invalidate: Whether to invalidate existing cached snapshots
+
+        Returns:
+            New Snapshot with the copied files
+        """
+        renderer.add_system_panel("📁 Snapshot.copy_()", f"src={src} → dest={dest}")
+
+        def execute_copy(instance):
+            # Create a panel to show copy progress
+            copy_text = Text()
+            copy_panel = Panel(
+                copy_text,
+                title="📋 File Copy Progress",
+                border_style=_colour("running"),
+                style=f"on {PALETTE['bg']}",
+            )
+            renderer.add_panel(copy_panel)
+
+            def update_progress(message: str, style: str | None = None):
+                copy_text.append(f"{message}\n", style=style)
+                renderer.refresh()
+
+            try:
+                with instance.ssh() as ssh:
+                    ssh_client = ssh._client
+                    sftp = ssh_client.open_sftp()
+
+                    src_path = Path(src)
+
+                    # Check if source exists
+                    if not src_path.exists():
+                        update_progress(f"❌ Source not found: {src}", _colour("error"))
+                        raise FileNotFoundError(f"Source path does not exist: {src}")
+
+                    update_progress(f"📂 Copying {src} to {dest}")
+
+                    # Helper function to create remote directories
+                    def ensure_remote_dir(remote_path: str):
+                        try:
+                            sftp.stat(remote_path)
+                        except FileNotFoundError:
+                            # Directory doesn't exist, create it
+                            parent = str(Path(remote_path).parent)
+                            if parent != remote_path and parent != "/":
+                                ensure_remote_dir(parent)
+                            sftp.mkdir(remote_path)
+                            update_progress(f"📁 Created directory: {remote_path}")
+
+                    # Helper function to copy a single file
+                    def copy_file(local_file: Path, remote_file: str):
+                        # Ensure the remote directory exists
+                        remote_dir = str(Path(remote_file).parent)
+                        if remote_dir != remote_file:
+                            ensure_remote_dir(remote_dir)
+
+                        # Copy the file
+                        sftp.put(str(local_file), remote_file)
+                        update_progress(f"📄 Copied file: {local_file.name}")
+
+                        # Try to preserve permissions
+                        try:
+                            local_stat = local_file.stat()
+                            sftp.chmod(remote_file, local_stat.st_mode)
+                        except (OSError, AttributeError):
+                            # Permissions may not be preservable, continue anyway
+                            pass
+
+                    # Helper function to copy directory recursively
+                    def copy_directory(local_dir: Path, remote_dir: str):
+                        ensure_remote_dir(remote_dir)
+
+                        for item in local_dir.iterdir():
+                            remote_item = f"{remote_dir}/{item.name}"
+
+                            if item.is_file():
+                                copy_file(item, remote_item)
+                            elif item.is_dir():
+                                copy_directory(item, remote_item)
+
+                    # Main copy logic
+                    if src_path.is_file():
+                        # Copying a single file
+                        if dest.endswith("/"):
+                            # Destination is a directory, copy file into it
+                            remote_file = f"{dest.rstrip('/')}/{src_path.name}"
+                        else:
+                            # Check if destination is an existing directory
+                            try:
+                                dest_stat = sftp.stat(dest)
+                                if stat.S_ISDIR(dest_stat.st_mode):
+                                    remote_file = f"{dest}/{src_path.name}"
+                                else:
+                                    remote_file = dest
+                            except FileNotFoundError:
+                                # Destination doesn't exist, treat as file
+                                remote_file = dest
+
+                        copy_file(src_path, remote_file)
+
+                    elif src_path.is_dir():
+                        # Copying a directory
+                        if dest.endswith("/"):
+                            # Copy directory contents into destination
+                            remote_base = dest.rstrip("/")
+                            copy_directory(src_path, f"{remote_base}/{src_path.name}")
+                        else:
+                            # Check if destination exists and is a directory
+                            try:
+                                dest_stat = sftp.stat(dest)
+                                if stat.S_ISDIR(dest_stat.st_mode):
+                                    copy_directory(src_path, f"{dest}/{src_path.name}")
+                                else:
+                                    # Destination exists but is not a directory
+                                    update_progress(
+                                        f"❌ Destination exists and is not a directory: {dest}",
+                                        _colour("error"),
+                                    )
+                                    raise ValueError(
+                                        f"Cannot copy directory to non-directory: {dest}"
+                                    )
+                            except FileNotFoundError:
+                                # Destination doesn't exist, create it
+                                copy_directory(src_path, dest)
+
+                    sftp.close()
+                    update_progress(
+                        "✅ Copy completed successfully", _colour("success")
+                    )
+
+                    # Update panel border to success
+                    copy_panel.border_style = _colour("success")
+                    renderer.refresh()
+
+            except Exception as e:
+                update_progress(f"❌ Copy failed: {str(e)}", _colour("error"))
+                copy_panel.border_style = _colour("error")
+                renderer.refresh()
+                raise
+
+        return self.apply(execute_copy, key=f"copy-{src}-{dest}", invalidate=invalidate)
 
     # ------------------------------------------------------------------ #
     # Remaining Snapshot methods unchanged                               #
@@ -441,9 +631,7 @@ class Snapshot:
         verify=None,
         invalidate: InvalidateFn | bool = False,
     ):
-        verify_funcs = (
-            [verify] if isinstance(verify, typing.Callable) else verify or []
-        )
+        verify_funcs = [verify] if isinstance(verify, typing.Callable) else verify or []
         digest = self.key_to_digest(
             instructions + ",".join(v.__name__ for v in verify_funcs)
         )
@@ -516,7 +704,7 @@ class Snapshot:
     ):
         renderer.add_system_panel(
             "🔧 Snapshot.resize()",
-            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB"
+            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB",
         )
 
         @contextmanager
@@ -531,7 +719,6 @@ class Snapshot:
             start_fn=boot_snapshot,
             invalidate=invalidate,
         )
-
 
     @contextmanager
     def deploy(
@@ -554,9 +741,7 @@ class Snapshot:
         )
         with self.start() as instance:
             url = instance.expose_http_service(name=name, port=port)
-            renderer.console.print(
-                f"[{_colour('success')}]Started service at {url}[/]"
-            )
+            renderer.console.print(f"[{_colour('success')}]Started service at {url}[/]")
             yield instance, url
 
     def tag(self, tag: str):
@@ -571,9 +756,7 @@ class Snapshot:
         meta = self.snapshot.metadata.copy()
         meta.update({"tag": tag})
         self.snapshot.set_metadata(meta)
-        renderer.console.print(
-            f"[{_colour('success')}]Snapshot tagged successfully!"
-        )
+        renderer.console.print(f"[{_colour('success')}]Snapshot tagged successfully!")
 
     @contextmanager
     @staticmethod
