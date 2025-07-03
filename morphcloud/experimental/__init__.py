@@ -340,8 +340,8 @@ class Snapshot:
         if not snapshots:
             return None
         # Return the most recent snapshot (assuming list is ordered by creation time)
-        # The last item in the list is the most recently created
-        return cls(snapshots[-1])
+        # The first item in the list is the most recently created
+        return cls(snapshots[0])
 
     def start(
         self,
