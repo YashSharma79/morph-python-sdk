@@ -334,16 +334,14 @@ class Snapshot:
         return cls(snap)
 
     @classmethod
-    def from_tag(cls, tag: str) -> "Snapshot":
+    def from_tag(cls, tag: str) -> typing.Optional["Snapshot"]:
         renderer.add_system_panel("🏷️  Snapshot.from_tag()", f"tag={tag}")
         snapshots = client.snapshots.list(metadata={"tag": tag})
         if not snapshots:
-            raise ValueError(f"No snapshot found with tag: {tag}")
-        if len(snapshots) > 1:
-            raise ValueError(
-                f"Multiple snapshots found with tag '{tag}'. Found {len(snapshots)} snapshots."
-            )
-        return cls(snapshots[0])
+            return None
+        # Return the most recent snapshot (assuming list is ordered by creation time)
+        # The last item in the list is the most recently created
+        return cls(snapshots[-1])
 
     def start(
         self,
