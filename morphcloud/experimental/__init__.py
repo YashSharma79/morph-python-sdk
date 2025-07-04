@@ -11,86 +11,32 @@ from contextlib import contextmanager
 from typing import Iterator, Tuple, Union, Literal
 
 import paramiko
-
-from rich.align import Align
-from rich.console import Console, Group
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.theme import Theme
-from rich.tree import Tree
+import logging
 
 from morphcloud.api import MorphCloudClient, Instance, Snapshot as _Snapshot
 
-
-PALETTE = {
-    "bg": "#2D2D2D",
-    "success": "#CEFF1A",
-    "error": "#F23F42",
-    "accent": "#F2777A",
-    "running": "yellow",
-}
+# Configure logging for the experimental module
+logger = logging.getLogger(__name__)
 
 
-def _colour(kind: str) -> str:
-    return PALETTE.get(kind, "white")
-
-
-# ──────────────────────────── Renderer ─────────────────────────── #
-class Renderer:
-    """Rich console wrapper that enforces dark background + palette."""
+# ──────────────────────────── Logging System ─────────────────────────── #
+class LoggingSystem:
+    """Structured logging system to replace the Rich renderer."""
 
     def __init__(self):
-        theme = Theme(
-            {
-                "success": PALETTE["success"],
-                "error": PALETTE["error"],
-                "accent": PALETTE["accent"],
-                "running": PALETTE["running"],
-            }
-        )
-        self._console = Console(
-            theme=theme,
-            color_system="truecolor",
-            style=f"white on {PALETTE['bg']}",
-            highlight=False,
-        )
-        self._console.clear()
-
         self._lock = threading.Lock()
-        self._panels: list[Panel] = []
-        self._live = Live(
-            Group(),
-            console=self._console,
-            refresh_per_second=16,
-            vertical_overflow="visible",
-        )
-
-    def _refresh(self):
-        self._live.update(Group(*self._panels))
-
-    def start_live(self):
-        return self._live
-
-    def add_panel(self, panel: Panel):
-        with self._lock:
-            self._panels.append(panel)
-            self._refresh()
-
-    def refresh(self):
-        with self._lock:
-            self._refresh()
 
     def add_system_panel(self, title: str, body: str):
-        self.add_panel(
-            Panel(
-                Text(body),
-                title=title,
-                border_style=_colour("accent"),
-                style=f"on {PALETTE['bg']}",
-            )
-        )
+        """Log system operations with structured data."""
+        logger.info(f"{title}: {body}")
+
+    def add_panel(self, panel_content: str):
+        """Log panel content."""
+        logger.info(panel_content)
+
+    def refresh(self):
+        """No-op for logging compatibility."""
+        pass
 
     @property
     def lock(self):
@@ -98,37 +44,34 @@ class Renderer:
 
     @property
     def console(self):
-        return self._console
+        """Return a simple console-like object for compatibility."""
+        return SimpleConsole()
 
     @contextmanager
     def pause(self):
-        """
-        Stop Live and block other threads from updating while the
-        block executes (typically to read user input).
-        """
+        """Compatibility context manager."""
         with self._lock:
-            # suspend Live by stopping its refresh thread
-            live_was_running = self._live.is_started
-            if live_was_running:
-                self._live.stop()
+            yield
 
-            try:
-                yield
-            finally:
-                # resume Live and refresh the screen
-                if live_was_running:
-                    self._live.start(refresh=True)
-                else:
-                    self._refresh_nolock()
-
-    # ───────────────────────── internal ────────────────────────────── #
-
-    def _refresh_nolock(self):
-        """Update Live – assumes self._lock is already held."""
-        self._live.update(Group(*self._panels))
+    @contextmanager
+    def start_live(self):
+        """Compatibility context manager for live rendering."""
+        yield
 
 
-renderer = Renderer()
+class SimpleConsole:
+    """Simple console replacement for logging."""
+    
+    def print(self, message: str):
+        """Print message using logger."""
+        logger.info(message)
+
+    def clear(self):
+        """No-op for logging compatibility."""
+        pass
+
+
+renderer = LoggingSystem()
 
 
 # ───────────────────────────── Helpers ──────────────────────────── #
@@ -144,75 +87,50 @@ Line = tuple[str, str | None]
 def _append_stream_chunk(
     buf: deque[Line],
     chunk: str,
-    text_obj: Text,
     *,
     style: str | None = None,
     max_lines: int = STREAM_MAX_LINES,
 ):
-    # 1. split new data into logical lines (keep newlines)
+    """Append stream chunk to buffer and log it."""
+    # Split new data into logical lines (keep newlines)
     for ln in chunk.splitlines(keepends=True):
         buf.append((ln, style))
+        # Log each line immediately
+        if style == "error":
+            logger.error(f"STDERR: {ln.rstrip()}")
+        else:
+            logger.info(f"STDOUT: {ln.rstrip()}")
 
-    # 2. trim old lines
+    # Trim old lines
     while len(buf) > max_lines:
         buf.popleft()
 
-    # 3. rebuild the Rich Text object
-    text_obj.plain = ""  # ‹NEW› wipe text
-    text_obj.spans.clear()  # ‹NEW› wipe previous styling
-
     if len(buf) == max_lines:
-        text_obj.append(ELLIPSIS, style="dim")
-
-    for ln, st in buf:
-        text_obj.append(ln, style=st)
+        logger.info(ELLIPSIS.strip())
 
 
-def prettify_run(instructions: str) -> Panel:
-    return Panel(
-        Text(instructions, style="bold"),
-        title="▶️ Run",
-        border_style=_colour("accent"),
-        style=f"on {PALETTE['bg']}",
-    )
 
 
-# ───────────────────────── Verification UI ──────────────────────── #
+# ───────────────────────── Verification System ──────────────────────── #
 class VerificationPanel:
     def __init__(self, verify_funcs: list[typing.Callable]):
         self._statuses = {v.__name__: "⏳ running" for v in verify_funcs}
-        self._panel = Panel(
-            Align.left(self._make_table()),
-            title="🔍 Verify",
-            border_style=_colour("running"),
-            style=f"on {PALETTE['bg']}",
-        )
-
-    def _make_table(self) -> Table:
-        table = Table.grid(padding=(0, 1))
-        table.add_column(justify="right", style=_colour("running"))
-        table.add_column()
-        for fn, status in self._statuses.items():
-            colour = (
-                _colour("success")
-                if status.startswith("✅")
-                else _colour("error") if status.startswith("❌") else _colour("running")
-            )
-            table.add_row(fn, f"[{colour}]{status}[/{colour}]")
-        return table
-
-    @property
-    def panel(self) -> Panel:
-        return self._panel
+        logger.info("🔍 Verify: Starting verification", extra={"verify_funcs": [f.__name__ for f in verify_funcs]})
 
     def update(self, fn_name: str, new_status: str):
         self._statuses[fn_name] = new_status
-        self._panel.renderable = Align.left(self._make_table())
+        logger.info(f"🔍 Verify: {fn_name} - {new_status}")
+        
+        # Check overall status
         if all(s.startswith("✅") for s in self._statuses.values()):
-            self._panel.border_style = _colour("success")
+            logger.info("🔍 Verify: All verifications passed")
         elif any(s.startswith("❌") for s in self._statuses.values()):
-            self._panel.border_style = _colour("error")
-        renderer.refresh()
+            logger.error("🔍 Verify: Some verifications failed")
+
+    @property
+    def panel(self) -> str:
+        """Return panel content as string for compatibility."""
+        return f"Verification status: {self._statuses}"
 
 
 # ───────────────────── Anthropic / agent setup ─────────────────── #
@@ -301,10 +219,13 @@ class Snapshot:
         disk_size: int = 8192,
         invalidate: InvalidateFn | bool = False,
     ) -> "Snapshot":
-        renderer.add_system_panel(
-            "🖼  Snapshot.create()",
-            f"image_id={image_id}, vcpus={vcpus}, memory={memory}MB, disk={disk_size}MB",
-        )
+        logger.info("🖼  Snapshot.create()", extra={
+            "image_id": image_id,
+            "vcpus": vcpus,
+            "memory": memory,
+            "disk_size": disk_size,
+            "snapshot_name": name
+        })
         if invalidate:
             invalidate_fn = (
                 invalidate
@@ -327,15 +248,13 @@ class Snapshot:
 
     @classmethod
     def from_snapshot_id(cls, snapshot_id: str) -> "Snapshot":
-        renderer.add_system_panel(
-            "🔍 Snapshot.from_snapshot_id()", f"snapshot_id={snapshot_id}"
-        )
+        logger.info("🔍 Snapshot.from_snapshot_id()", extra={"snapshot_id": snapshot_id})
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
     @classmethod
     def from_tag(cls, tag: str) -> typing.Optional["Snapshot"]:
-        renderer.add_system_panel("🏷️  Snapshot.from_tag()", f"tag={tag}")
+        logger.info("🏷️  Snapshot.from_tag()", extra={"tag": tag})
         snapshots = client.snapshots.list(metadata={"tag": tag})
         if not snapshots:
             return None
@@ -368,10 +287,11 @@ class Snapshot:
         memory: int | None = None,
         disk_size: int | None = None,
     ):
-        renderer.add_system_panel(
-            "🔄 Snapshot.boot()",
-            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB",
-        )
+        logger.info("🔄 Snapshot.boot()", extra={
+            "vcpus": vcpus or self.snapshot.spec.vcpus,
+            "memory": memory or self.snapshot.spec.memory,
+            "disk_size": disk_size or self.snapshot.spec.disk_size
+        })
         with client.instances.boot(
             snapshot_id=self.snapshot.id,
             vcpus=vcpus,
@@ -429,48 +349,23 @@ class Snapshot:
 
     # -------------- run with stream between CMD/RET -------------- #
     def run(self, command: str, invalidate: InvalidateFn | bool = False):
-        renderer.add_system_panel("🚀 Snapshot.run()", command)
+        logger.info("🚀 Snapshot.run()", extra={"command": command})
 
         def execute(instance):
-            header_tbl = Table.grid(padding=(0, 1))
-            header_tbl.add_column(justify="right", style=_colour("running"))
-            header_tbl.add_column()
-            header_tbl.add_row("CMD", command)
-
-            footer_tbl = Table.grid(padding=(0, 1))
-            footer_tbl.add_column(justify="right", style=_colour("running"))
-            footer_tbl.add_column()
-
-            out_text = Text()
-            grp = Group(
-                Align.left(header_tbl), Align.left(out_text), Align.left(footer_tbl)
-            )
-            panel = Panel(
-                grp,
-                title="🖥  Snapshot.run()",
-                border_style=_colour("accent"),
-                style=f"on {PALETTE['bg']}",
-            )
-            renderer.add_panel(panel)
-
+            logger.info("🖥  Snapshot.run() - Starting command execution", extra={"command": command})
+            
             buf = deque()
 
-            def _out(c):
-                _append_stream_chunk(buf, c, out_text)
-                renderer.refresh()
-
-            def _err(c):
-                _append_stream_chunk(buf, c, out_text, style=_colour("error"))
-                renderer.refresh()
+            def _out(c): _append_stream_chunk(buf, c)
+            def _err(c): _append_stream_chunk(buf, c, style="error")
 
             exit_code = instance_exec(instance, command, _out, _err)
-            footer_tbl.add_row("RET", str(exit_code))
-            renderer.refresh()
+            logger.info("🖥  Snapshot.run() - Command completed", extra={"command": command, "exit_code": exit_code})
 
             if exit_code != 0:
-                raise Exception(
-                    f"Command execution failed: {command} exit={exit_code} stdout={out_text.plain} stderr={out_text.plain}"
-                )
+                # Get the last few lines from buffer for error context
+                recent_output = ''.join([line for line, _ in list(buf)[-5:]])
+                raise Exception(f"Command execution failed: {command} exit={exit_code} recent_output={recent_output}")
 
         return self.apply(execute, key=command, invalidate=invalidate)
 
@@ -486,22 +381,16 @@ class Snapshot:
         Returns:
             New Snapshot with the copied files
         """
-        renderer.add_system_panel("📁 Snapshot.copy_()", f"src={src} → dest={dest}")
+        logger.info("📁 Snapshot.copy_()", extra={"src": src, "dest": dest})
 
         def execute_copy(instance):
-            # Create a panel to show copy progress
-            copy_text = Text()
-            copy_panel = Panel(
-                copy_text,
-                title="📋 File Copy Progress",
-                border_style=_colour("running"),
-                style=f"on {PALETTE['bg']}",
-            )
-            renderer.add_panel(copy_panel)
+            logger.info("📋 File Copy Progress - Starting copy operation")
 
             def update_progress(message: str, style: str | None = None):
-                copy_text.append(f"{message}\n", style=style)
-                renderer.refresh()
+                if style == "error":
+                    logger.error(f"Copy Progress: {message}")
+                else:
+                    logger.info(f"Copy Progress: {message}")
 
             try:
                 with instance.ssh() as ssh:
@@ -512,7 +401,7 @@ class Snapshot:
 
                     # Check if source exists
                     if not src_path.exists():
-                        update_progress(f"❌ Source not found: {src}", _colour("error"))
+                        update_progress(f"❌ Source not found: {src}", "error")
                         raise FileNotFoundError(f"Source path does not exist: {src}")
 
                     update_progress(f"📂 Copying {src} to {dest}")
@@ -596,7 +485,7 @@ class Snapshot:
                                     # Destination exists but is not a directory
                                     update_progress(
                                         f"❌ Destination exists and is not a directory: {dest}",
-                                        _colour("error"),
+                                        "error",
                                     )
                                     raise ValueError(
                                         f"Cannot copy directory to non-directory: {dest}"
@@ -607,17 +496,11 @@ class Snapshot:
 
                     sftp.close()
                     update_progress(
-                        "✅ Copy completed successfully", _colour("success")
+                        "✅ Copy completed successfully"
                     )
 
-                    # Update panel border to success
-                    copy_panel.border_style = _colour("success")
-                    renderer.refresh()
-
             except Exception as e:
-                update_progress(f"❌ Copy failed: {str(e)}", _colour("error"))
-                copy_panel.border_style = _colour("error")
-                renderer.refresh()
+                update_progress(f"❌ Copy failed: {str(e)}", "error")
                 raise
 
         return self.apply(execute_copy, key=f"copy-{src}-{dest}", invalidate=invalidate)
@@ -636,32 +519,20 @@ class Snapshot:
             instructions + ",".join(v.__name__ for v in verify_funcs)
         )
 
-        tree_root = Tree("")
-        renderer.add_panel(
-            Panel(
-                tree_root,
-                title=instructions,
-                border_style=_colour("accent"),
-                style=f"on {PALETTE['bg']}",
-            )
-        )
-
-        agent_visual = Agent(tree_root)
+        logger.info("🔍 Snapshot.do() - Starting verification", extra={
+            "instructions": instructions,
+            "verify_funcs": [v.__name__ for v in verify_funcs]
+        })
 
         snaps_exist = client.snapshots.list(digest=digest)
         if snaps_exist and not invalidate:
-            agent_visual._set_status("💾 Cached ✅", "success")
+            logger.info("💾 Cached ✅ - Using existing snapshot")
             return Snapshot(snaps_exist[0])
 
         def verifier(inst):
             if not verify_funcs:
                 return True
-            current_agent: Agent | None = getattr(_agent_local, "current_agent", None)
-            if current_agent is None:
-                return True
-
             vpanel = VerificationPanel(verify_funcs)
-            current_agent._append(vpanel.panel)
 
             all_ok = True
             verification_errors = []
@@ -676,23 +547,22 @@ class Snapshot:
                     verification_errors.append(f"{func.__name__}: {error_msg}")
                     all_ok = False
 
-            # Store errors in the current agent for tool result retrieval
-            if current_agent:
-                current_agent._last_verification_errors = verification_errors
+            # Store errors for debugging
+            if verification_errors:
+                logger.error("Verification errors", extra={"errors": verification_errors})
 
             return all_ok
 
-        def run_agent(instance):
-            agent_visual.run(instance, instructions, verifier)
-            if agent_visual.running:
-                raise Exception("Agent execution did not complete successfully.")
+        def run_verification(instance):
+            logger.info("🔍 Starting verification", extra={"instructions": instructions})
+            success = verifier(instance)
+            if not success:
+                raise Exception("Verification failed.")
             return instance
 
-        new_snap = self.apply(run_agent, key=digest, invalidate=invalidate)
+        new_snap = self.apply(run_verification, key=digest, invalidate=invalidate)
 
-        if agent_visual.running:
-            agent_visual._set_status("💾 Cached ✅", "success")
-
+        logger.info("🔍 Verification completed successfully")
         return new_snap
 
     def resize(
@@ -702,10 +572,11 @@ class Snapshot:
         disk_size: int | None = None,
         invalidate: bool = False,
     ):
-        renderer.add_system_panel(
-            "🔧 Snapshot.resize()",
-            f"vcpus={vcpus or self.snapshot.spec.vcpus}, memory={memory or self.snapshot.spec.memory}MB, disk={disk_size or self.snapshot.spec.disk_size}MB",
-        )
+        logger.info("🔧 Snapshot.resize()", extra={
+            "vcpus": vcpus or self.snapshot.spec.vcpus,
+            "memory": memory or self.snapshot.spec.memory,
+            "disk_size": disk_size or self.snapshot.spec.disk_size
+        })
 
         @contextmanager
         def boot_snapshot():
@@ -728,38 +599,28 @@ class Snapshot:
         min_replicas: int = 0,
         max_replicas: int = 3,
     ):
-        renderer.console.print(
-            Panel(
-                Text(
-                    f"name={name}\nport={port}\nreplicas=[{min_replicas},{max_replicas}]",
-                    justify="left",
-                ),
-                title="🌐 Snapshot.deploy()",
-                border_style=_colour("success"),
-                style=f"on {PALETTE['bg']}",
-            )
-        )
+        logger.info("🌐 Snapshot.deploy()", extra={
+            "service_name": name,
+            "port": port,
+            "min_replicas": min_replicas,
+            "max_replicas": max_replicas
+        })
         with self.start() as instance:
             url = instance.expose_http_service(name=name, port=port)
-            renderer.console.print(f"[{_colour('success')}]Started service at {url}[/]")
+            logger.info(f"Started service at {url}")
             yield instance, url
 
     def tag(self, tag: str):
-        renderer.console.print(
-            Panel(
-                Text(f"tag={tag}", justify="left"),
-                title="🏷  Snapshot.tag()",
-                border_style=_colour("accent"),
-                style=f"on {PALETTE['bg']}",
-            )
-        )
+        logger.info("🏷  Snapshot.tag()", extra={"tag": tag})
         meta = self.snapshot.metadata.copy()
         meta.update({"tag": tag})
         self.snapshot.set_metadata(meta)
-        renderer.console.print(f"[{_colour('success')}]Snapshot tagged successfully!")
+        logger.info("Snapshot tagged successfully!")
 
     @contextmanager
     @staticmethod
     def pretty_build():
         with renderer.start_live():
             yield renderer
+
+
