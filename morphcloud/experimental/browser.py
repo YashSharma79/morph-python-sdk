@@ -672,6 +672,7 @@ class BrowserSession:
 
         except Exception as e:
             import traceback
+
             print(traceback.format_exc(e))
             raise RuntimeError(f"Failed to create browser session: {e}")
 
