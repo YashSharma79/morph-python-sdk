@@ -513,6 +513,7 @@ class BrowserSession:
 
             # Start instance (don't use context manager to keep it running)
             instance = snapshot.start(metadata={"name": name}, ttl_seconds=ttl_seconds)
+            instance.wait_until_ready()
 
             # Verify Chrome installation
             if verbose:
@@ -670,6 +671,8 @@ class BrowserSession:
             return session
 
         except Exception as e:
+            import traceback
+            print(traceback.format_exc(e))
             raise RuntimeError(f"Failed to create browser session: {e}")
 
 
