@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import logging
 import stat
+import threading
 import time
 import typing
-import threading
-
-from pathlib import Path
 from collections import deque
 from contextlib import contextmanager
-from typing import Iterator, Tuple, Union, Literal
+from pathlib import Path
+from typing import Iterator, Literal, Tuple, Union
 
 import paramiko
-import logging
 
-from morphcloud.api import MorphCloudClient, Instance, Snapshot as _Snapshot
+from morphcloud.api import Instance, MorphCloudClient
+from morphcloud.api import Snapshot as _Snapshot
 
 # Configure logging for the experimental module
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class LoggingSystem:
 
 class SimpleConsole:
     """Simple console replacement for logging."""
-    
+
     def print(self, message: str):
         """Print message using logger."""
         logger.info(message)
@@ -109,18 +109,19 @@ def _append_stream_chunk(
         logger.info(ELLIPSIS.strip())
 
 
-
-
 # ───────────────────────── Verification System ──────────────────────── #
 class VerificationPanel:
     def __init__(self, verify_funcs: list[typing.Callable]):
         self._statuses = {v.__name__: "⏳ running" for v in verify_funcs}
-        logger.info("🔍 Verify: Starting verification", extra={"verify_funcs": [f.__name__ for f in verify_funcs]})
+        logger.info(
+            "🔍 Verify: Starting verification",
+            extra={"verify_funcs": [f.__name__ for f in verify_funcs]},
+        )
 
     def update(self, fn_name: str, new_status: str):
         self._statuses[fn_name] = new_status
         logger.info(f"🔍 Verify: {fn_name} - {new_status}")
-        
+
         # Check overall status
         if all(s.startswith("✅") for s in self._statuses.values()):
             logger.info("🔍 Verify: All verifications passed")
@@ -221,13 +222,16 @@ class Snapshot:
         disk_size: int = 8192,
         invalidate: InvalidateFn | bool = False,
     ) -> "Snapshot":
-        logger.info("🖼  Snapshot.create()", extra={
-            "image_id": image_id,
-            "vcpus": vcpus,
-            "memory": memory,
-            "disk_size": disk_size,
-            "snapshot_name": name
-        })
+        logger.info(
+            "🖼  Snapshot.create()",
+            extra={
+                "image_id": image_id,
+                "vcpus": vcpus,
+                "memory": memory,
+                "disk_size": disk_size,
+                "snapshot_name": name,
+            },
+        )
         if invalidate:
             invalidate_fn = (
                 invalidate
@@ -250,7 +254,9 @@ class Snapshot:
 
     @classmethod
     def from_snapshot_id(cls, snapshot_id: str) -> "Snapshot":
-        logger.info("🔍 Snapshot.from_snapshot_id()", extra={"snapshot_id": snapshot_id})
+        logger.info(
+            "🔍 Snapshot.from_snapshot_id()", extra={"snapshot_id": snapshot_id}
+        )
         snap = client.snapshots.get(snapshot_id)
         return cls(snap)
 
@@ -289,11 +295,14 @@ class Snapshot:
         memory: int | None = None,
         disk_size: int | None = None,
     ):
-        logger.info("🔄 Snapshot.boot()", extra={
-            "vcpus": vcpus or self.snapshot.spec.vcpus,
-            "memory": memory or self.snapshot.spec.memory,
-            "disk_size": disk_size or self.snapshot.spec.disk_size
-        })
+        logger.info(
+            "🔄 Snapshot.boot()",
+            extra={
+                "vcpus": vcpus or self.snapshot.spec.vcpus,
+                "memory": memory or self.snapshot.spec.memory,
+                "disk_size": disk_size or self.snapshot.spec.disk_size,
+            },
+        )
         with client.instances.boot(
             snapshot_id=self.snapshot.id,
             vcpus=vcpus,
@@ -354,20 +363,31 @@ class Snapshot:
         logger.info("🚀 Snapshot.run()", extra={"command": command})
 
         def execute(instance):
-            logger.info("🖥  Snapshot.run() - Starting command execution", extra={"command": command})
-            
+            logger.info(
+                "🖥  Snapshot.run() - Starting command execution",
+                extra={"command": command},
+            )
+
             buf = deque()
 
-            def _out(c): _append_stream_chunk(buf, c)
-            def _err(c): _append_stream_chunk(buf, c, style="error")
+            def _out(c):
+                _append_stream_chunk(buf, c)
+
+            def _err(c):
+                _append_stream_chunk(buf, c, style="error")
 
             exit_code = instance_exec(instance, command, _out, _err)
-            logger.info("🖥  Snapshot.run() - Command completed", extra={"command": command, "exit_code": exit_code})
+            logger.info(
+                "🖥  Snapshot.run() - Command completed",
+                extra={"command": command, "exit_code": exit_code},
+            )
 
             if exit_code != 0:
                 # Get the last few lines from buffer for error context
-                recent_output = ''.join([line for line, _ in list(buf)[-5:]])
-                raise Exception(f"Command execution failed: {command} exit={exit_code} recent_output={recent_output}")
+                recent_output = "".join([line for line, _ in list(buf)[-5:]])
+                raise Exception(
+                    f"Command execution failed: {command} exit={exit_code} recent_output={recent_output}"
+                )
 
         return self.apply(execute, key=command, invalidate=invalidate)
 
@@ -497,9 +517,7 @@ class Snapshot:
                                 copy_directory(src_path, dest)
 
                     sftp.close()
-                    update_progress(
-                        "✅ Copy completed successfully"
-                    )
+                    update_progress("✅ Copy completed successfully")
 
             except Exception as e:
                 update_progress(f"❌ Copy failed: {str(e)}", "error")
@@ -521,10 +539,13 @@ class Snapshot:
             instructions + ",".join(v.__name__ for v in verify_funcs)
         )
 
-        logger.info("🔍 Snapshot.do() - Starting verification", extra={
-            "instructions": instructions,
-            "verify_funcs": [v.__name__ for v in verify_funcs]
-        })
+        logger.info(
+            "🔍 Snapshot.do() - Starting verification",
+            extra={
+                "instructions": instructions,
+                "verify_funcs": [v.__name__ for v in verify_funcs],
+            },
+        )
 
         snaps_exist = client.snapshots.list(digest=digest)
         if snaps_exist and not invalidate:
@@ -551,12 +572,16 @@ class Snapshot:
 
             # Store errors for debugging
             if verification_errors:
-                logger.error("Verification errors", extra={"errors": verification_errors})
+                logger.error(
+                    "Verification errors", extra={"errors": verification_errors}
+                )
 
             return all_ok
 
         def run_verification(instance):
-            logger.info("🔍 Starting verification", extra={"instructions": instructions})
+            logger.info(
+                "🔍 Starting verification", extra={"instructions": instructions}
+            )
             success = verifier(instance)
             if not success:
                 raise Exception("Verification failed.")
@@ -574,11 +599,14 @@ class Snapshot:
         disk_size: int | None = None,
         invalidate: bool = False,
     ):
-        logger.info("🔧 Snapshot.resize()", extra={
-            "vcpus": vcpus or self.snapshot.spec.vcpus,
-            "memory": memory or self.snapshot.spec.memory,
-            "disk_size": disk_size or self.snapshot.spec.disk_size
-        })
+        logger.info(
+            "🔧 Snapshot.resize()",
+            extra={
+                "vcpus": vcpus or self.snapshot.spec.vcpus,
+                "memory": memory or self.snapshot.spec.memory,
+                "disk_size": disk_size or self.snapshot.spec.disk_size,
+            },
+        )
 
         @contextmanager
         def boot_snapshot():
@@ -601,12 +629,15 @@ class Snapshot:
         min_replicas: int = 0,
         max_replicas: int = 3,
     ):
-        logger.info("🌐 Snapshot.deploy()", extra={
-            "service_name": name,
-            "port": port,
-            "min_replicas": min_replicas,
-            "max_replicas": max_replicas
-        })
+        logger.info(
+            "🌐 Snapshot.deploy()",
+            extra={
+                "service_name": name,
+                "port": port,
+                "min_replicas": min_replicas,
+                "max_replicas": max_replicas,
+            },
+        )
         with self.start() as instance:
             url = instance.expose_http_service(name=name, port=port)
             logger.info(f"Started service at {url}")
@@ -624,5 +655,3 @@ class Snapshot:
     def pretty_build():
         with renderer.start_live():
             yield renderer
-
-
