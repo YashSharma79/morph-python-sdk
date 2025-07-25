@@ -408,6 +408,11 @@ class Snapshot(BaseModel):
         response.raise_for_status()
 
     def set_metadata(self, metadata: typing.Dict[str, str]) -> None:
+        """Set snapshot metadata. WARNING: Overwrites entire metadata dict.
+        
+        To preserve existing metadata: 
+        metadata = snapshot.metadata.copy(); metadata.update(new_fields); snapshot.set_metadata(metadata)
+        """
         response = self._api._client._http_client.post(
             f"/snapshot/{self.id}/metadata", json=metadata
         )
@@ -953,6 +958,7 @@ class InstanceAPI(BaseAPI):
         metadata: typing.Optional[typing.Dict[str, str]] = None,
         ttl_seconds: typing.Optional[int] = None,
         ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None,
+        timeout: typing.Optional[float] = None,
     ) -> Instance:
         """Create a new instance from a snapshot.
 
@@ -961,6 +967,7 @@ class InstanceAPI(BaseAPI):
             metadata: Optional metadata to attach to the instance.
             ttl_seconds: Optional time-to-live in seconds for the instance.
             ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+            timeout: Seconds to wait for instance to be ready. None means don't wait, 0.0 means wait indefinitely.
         """
         if isinstance(snapshot_id, Snapshot):
             assert isinstance(snapshot_id, str), "start(...) excepts a snapshot_id: str"
@@ -973,7 +980,21 @@ class InstanceAPI(BaseAPI):
                 "ttl_action": ttl_action,
             },
         )
-        return Instance.model_validate(response.json())._set_api(self)
+        instance = Instance.model_validate(response.json())._set_api(self)
+        if timeout is not None:
+            try:
+                timeout_val = None if timeout == 0.0 else timeout
+                instance.wait_until_ready(timeout=timeout_val)
+            except Exception as e:
+                console.print(f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]")
+                # Clean up the instance if it fails to become ready
+                try:
+                    instance.stop()
+                except Exception as cleanup_error:
+                    console.print(f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]")
+                    raise cleanup_error from e
+                raise e
+        return instance
 
     async def astart(
         self,
@@ -981,6 +1002,7 @@ class InstanceAPI(BaseAPI):
         metadata: typing.Optional[typing.Dict[str, str]] = None,
         ttl_seconds: typing.Optional[int] = None,
         ttl_action: typing.Union[None, typing.Literal["stop", "pause"]] = None,
+        timeout: typing.Optional[float] = None,
     ) -> Instance:
         """Create a new instance from a snapshot.
 
@@ -989,6 +1011,7 @@ class InstanceAPI(BaseAPI):
             metadata: Optional metadata to attach to the instance.
             ttl_seconds: Optional time-to-live in seconds for the instance.
             ttl_action: Optional action to take when the TTL expires. Can be "stop" or "pause".
+            timeout: Seconds to wait for instance to be ready. None means don't wait, 0.0 means wait indefinitely.
         """
         if isinstance(snapshot_id, Snapshot):
             assert isinstance(snapshot_id, str), "start(...) excepts a snapshot_id: str"
@@ -1001,7 +1024,21 @@ class InstanceAPI(BaseAPI):
                 "ttl_action": ttl_action,
             },
         )
-        return Instance.model_validate(response.json())._set_api(self)
+        instance = Instance.model_validate(response.json())._set_api(self)
+        if timeout is not None:
+            try:
+                timeout_val = None if timeout == 0.0 else timeout
+                await instance.await_until_ready(timeout=timeout_val)
+            except Exception as e:
+                console.print(f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]")
+                # Clean up the instance if it fails to become ready
+                try:
+                    await instance.astop()
+                except Exception as cleanup_error:
+                    console.print(f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]")
+                    raise cleanup_error from e
+                raise e
+        return instance
 
     def get(self, instance_id: str) -> Instance:
         """Get an instance by its ID."""
