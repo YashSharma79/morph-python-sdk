@@ -409,8 +409,8 @@ class Snapshot(BaseModel):
 
     def set_metadata(self, metadata: typing.Dict[str, str]) -> None:
         """Set snapshot metadata. WARNING: Overwrites entire metadata dict.
-        
-        To preserve existing metadata: 
+
+        To preserve existing metadata:
         metadata = snapshot.metadata.copy(); metadata.update(new_fields); snapshot.set_metadata(metadata)
         """
         response = self._api._client._http_client.post(
@@ -986,12 +986,16 @@ class InstanceAPI(BaseAPI):
                 timeout_val = None if timeout == 0.0 else timeout
                 instance.wait_until_ready(timeout=timeout_val)
             except Exception as e:
-                console.print(f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]")
+                console.print(
+                    f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]"
+                )
                 # Clean up the instance if it fails to become ready
                 try:
                     instance.stop()
                 except Exception as cleanup_error:
-                    console.print(f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]")
+                    console.print(
+                        f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]"
+                    )
                     raise cleanup_error from e
                 raise e
         return instance
@@ -1030,12 +1034,16 @@ class InstanceAPI(BaseAPI):
                 timeout_val = None if timeout == 0.0 else timeout
                 await instance.await_until_ready(timeout=timeout_val)
             except Exception as e:
-                console.print(f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]")
+                console.print(
+                    f"[red]Failed to start instance {instance.id} with timeout: {e}[/red]"
+                )
                 # Clean up the instance if it fails to become ready
                 try:
                     await instance.astop()
                 except Exception as cleanup_error:
-                    console.print(f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]")
+                    console.print(
+                        f"[red]Failed to cleanup instance {instance.id}: {cleanup_error}[/red]"
+                    )
                     raise cleanup_error from e
                 raise e
         return instance
