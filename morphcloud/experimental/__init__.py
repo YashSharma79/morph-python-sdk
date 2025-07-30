@@ -324,6 +324,7 @@ class Snapshot:
             None,
         ] = None,
         invalidate: InvalidateFn | bool = False,
+        debug: bool = False,
     ):
         invalidate_fn = (
             invalidate
@@ -345,27 +346,55 @@ class Snapshot:
                 return Snapshot(snaps[0])
 
         if start_fn is None:
-            context_manager = self.start()
+            context_manager = self.start(ttl_seconds=24 * 60 * 60, ttl_action="stop")
         elif callable(start_fn):
-            context_manager = start_fn()
+            context_manager = start_fn(ttl_seconds=24 * 60 * 60, ttl_action="stop")
         else:
             context_manager = start_fn
 
-        with context_manager as inst:
-            res = func(inst)
-            inst = inst if res is None else res
-            return Snapshot(
-                inst.snapshot(digest=self.key_to_digest(key) if key else None)
-            )
+        if debug:
+            inst = context_manager.__enter__()
+            try:
+                res = func(inst)
+                inst = inst if res is None else res
+
+                new_snapshot = Snapshot(
+                    inst.snapshot(digest=self.key_to_digest(key) if key else None)
+                )
+
+                logger.info(
+                    f"Debug mode - Command succeeded, stopping instance {inst.id}"
+                )
+                context_manager.__exit__(None, None, None)
+
+                return new_snapshot
+
+            except Exception as exc:
+                logger.warning(
+                    f"Debug mode - Command failed, leaving instance {inst.id} running for debugging "
+                    f"(24-hour TTL active): {exc}"
+                )
+                raise
+        else:
+            with context_manager as inst:
+                res = func(inst)
+                inst = inst if res is None else res
+                return Snapshot(
+                    inst.snapshot(digest=self.key_to_digest(key) if key else None)
+                )
 
     # -------------- run with stream between CMD/RET -------------- #
-    def run(self, command: str, invalidate: InvalidateFn | bool = False):
-        logger.info("🚀 Snapshot.run()", extra={"command": command})
+    def run(
+        self, command: str, debug: bool = False, invalidate: InvalidateFn | bool = False
+    ):
+        logger.info(
+            "🚀 Snapshot.run()", extra={"command": command, "debug_mode": debug}
+        )
 
         def execute(instance):
             logger.info(
                 "🖥  Snapshot.run() - Starting command execution",
-                extra={"command": command},
+                extra={"command": command, "debug_mode": debug},
             )
 
             buf = deque()
@@ -379,7 +408,7 @@ class Snapshot:
             exit_code = instance_exec(instance, command, _out, _err)
             logger.info(
                 "🖥  Snapshot.run() - Command completed",
-                extra={"command": command, "exit_code": exit_code},
+                extra={"command": command, "exit_code": exit_code, "debug_mode": debug},
             )
 
             if exit_code != 0:
@@ -389,7 +418,7 @@ class Snapshot:
                     f"Command execution failed: {command} exit={exit_code} recent_output={recent_output}"
                 )
 
-        return self.apply(execute, key=command, invalidate=invalidate)
+        return self.apply(execute, key=command, invalidate=invalidate, debug=debug)
 
     def copy_(self, src: str, dest: str, invalidate: InvalidateFn | bool = False):
         """
