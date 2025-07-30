@@ -128,6 +128,8 @@ class InstanceSshKey(BaseModel):
 
 
 class MorphCloudClient:
+    _plugins_loaded = False
+
     def __init__(
         self,
         api_key: typing.Optional[str] = None,
@@ -158,6 +160,25 @@ class MorphCloudClient:
             },
             timeout=None,
         )
+
+        # Load SDK plugins
+        if not MorphCloudClient._plugins_loaded:
+            self._load_sdk_plugins()
+            MorphCloudClient._plugins_loaded = True
+
+    def _load_sdk_plugins(self):
+        """Load SDK plugins from entry points."""
+        import importlib.metadata
+
+        try:
+            plugin_entry_points = importlib.metadata.entry_points(
+                group="morphcloud.sdk_plugins"
+            )
+            for entry_point in plugin_entry_points:
+                plugin_loader_func = entry_point.load()
+                plugin_loader_func(self)
+        except Exception:
+            pass
 
     @property
     def instances(self) -> InstanceAPI:
