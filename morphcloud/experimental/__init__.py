@@ -189,7 +189,7 @@ def instance_exec(
             match msg:
                 case ("stdout", txt):
                     on_stdout(txt)
-                case ("stdin", txt):
+                case ("stderr", txt):
                     on_stderr(txt)
                 case ("exit_code", code):
                     return code
